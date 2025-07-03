@@ -26,12 +26,24 @@
       border: 2px solid black;
       margin: 5px;
     }
+    #version {
+      position: absolute;
+      top: 8px;
+      right: 12px;
+      font-size: 0.9em;
+      background: #eee;
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-weight: bold;
+    }
   </style>
 </head>
 <body>
+  <div id="version">Version: v1.3</div>
   <h2>Laserpointer Steuerung</h2>
   <div class="colors" id="colorPicker"></div>
   <button id="touchModeBtn">Modus: Touch</button>
+
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script>
     const socket = io();
@@ -59,21 +71,22 @@
       touchBtn.textContent = useTouch ? "Modus: Touch" : "Modus: Gyro";
     });
 
-    // Touch position senden
+    // Touch
     document.body.addEventListener("touchmove", (e) => {
       if (!useTouch) return;
       e.preventDefault();
       const touch = e.touches[0];
       const x = touch.clientX / window.innerWidth;
       const y = touch.clientY / window.innerHeight;
+      console.log("touch draw", x, y, currentColor);
       socket.emit("draw", { x, y, color: currentColor });
     }, { passive: false });
 
-    // Gyroskop-Zugriff
+    // Gyro
     function handleOrientation(event) {
       if (useTouch) return;
-      const gamma = event.gamma; // links/rechts
-      const beta = event.beta;   // vor/zurück
+      const gamma = event.gamma;
+      const beta = event.beta;
 
       let x = (gamma + 90) / 180;
       let y = (beta + 180) / 360;
@@ -81,22 +94,30 @@
       x = Math.max(0, Math.min(1, x));
       y = Math.max(0, Math.min(1, y));
 
+      console.log("gyro draw", x, y, currentColor);
       socket.emit("draw", { x, y, color: currentColor });
     }
 
-    if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
-      DeviceOrientationEvent.requestPermission()
-        .then(state => {
-          if (state === "granted") {
-            window.addEventListener("deviceorientation", handleOrientation);
-          } else {
-            alert("Gyroskop-Zugriff verweigert.");
-          }
-        })
-        .catch(console.error);
-    } else {
-      window.addEventListener("deviceorientation", handleOrientation);
+    function requestGyroAccess() {
+      if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
+        DeviceOrientationEvent.requestPermission()
+          .then(state => {
+            if (state === "granted") {
+              window.addEventListener("deviceorientation", handleOrientation);
+              console.log("Gyro permission granted");
+            } else {
+              alert("Gyroskop-Zugriff verweigert.");
+            }
+          })
+          .catch(console.error);
+      } else {
+        window.addEventListener("deviceorientation", handleOrientation);
+        console.log("Gyro permission not required");
+      }
     }
+
+    // Request gyro access once page loads
+    window.addEventListener("load", requestGyroAccess);
   </script>
 </body>
 </html>
