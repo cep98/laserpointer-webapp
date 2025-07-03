@@ -56,7 +56,7 @@
   </style>
 </head>
 <body>
-  <div id="version">Version: v1.8</div>
+  <div id="version">Version: v1.9</div>
   <h2>Laserpointer Steuerung</h2>
   <div class="colors" id="colorPicker"></div>
   <button id="touchModeBtn">Modus: Touch</button>
@@ -67,6 +67,7 @@
     const socket = io();
 
     let useTouch = true;
+    let gyroEnabled = false;
     let currentColor = "red";
 
     const colors = ["red", "green", "blue", "yellow", "magenta", "cyan", "white", "black", "orange", "purple", "darkgreen"];
@@ -86,6 +87,9 @@
     touchBtn.addEventListener("click", () => {
       useTouch = !useTouch;
       touchBtn.textContent = useTouch ? "Modus: Touch" : "Modus: Gyro";
+      if (!useTouch && !gyroEnabled) {
+        requestGyroAccess();
+      }
     });
 
     const drawarea = document.getElementById("drawarea");
@@ -95,7 +99,6 @@
       const x = (touch.clientX - rect.left) / rect.width;
       const y = (touch.clientY - rect.top) / rect.height;
       if (x >= 0 && x <= 1 && y >= 0 && y <= 1) {
-        console.log("touch draw", x, y, currentColor);
         socket.emit("draw", { x, y, color: currentColor });
       }
     }
@@ -123,7 +126,6 @@
       x = Math.max(0, Math.min(1, x));
       y = Math.max(0, Math.min(1, y));
 
-      console.log("gyro draw", x, y, currentColor);
       socket.emit("draw", { x, y, color: currentColor });
     }
 
@@ -132,6 +134,7 @@
         DeviceOrientationEvent.requestPermission()
           .then(state => {
             if (state === "granted") {
+              gyroEnabled = true;
               window.addEventListener("deviceorientation", handleOrientation);
               console.log("Gyro permission granted");
             } else {
@@ -140,12 +143,11 @@
           })
           .catch(console.error);
       } else {
+        gyroEnabled = true;
         window.addEventListener("deviceorientation", handleOrientation);
         console.log("Gyro permission not required");
       }
     }
-
-    window.addEventListener("load", requestGyroAccess);
   </script>
 </body>
 </html>
