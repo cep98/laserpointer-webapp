@@ -13,6 +13,7 @@
       overflow: hidden;
       height: 100vh;
       touch-action: none;
+      background: #fff;
     }
     #version {
       position: absolute;
@@ -45,17 +46,17 @@
       padding: 0.5rem 1rem;
     }
     #drawarea {
-      margin-top: 1rem;
-      width: 100%;
-      height: calc(100vh - 220px); /* Platz für UI oben einplanen */
-      border: 2px dashed #999;
-      position: relative;
+      margin: 1rem auto;
+      width: 90vmin;
+      height: 90vmin;
+      border: 3px dashed #999;
       box-sizing: border-box;
+      touch-action: none;
     }
   </style>
 </head>
 <body>
-  <div id="version">Version: v1.6</div>
+  <div id="version">Version: v1.8</div>
   <h2>Laserpointer Steuerung</h2>
   <div class="colors" id="colorPicker"></div>
   <button id="touchModeBtn">Modus: Touch</button>
