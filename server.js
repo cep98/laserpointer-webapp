@@ -15,5 +15,5 @@ io.on("connection", socket => {
 });
 
 http.listen(process.env.PORT || 3000, () => {
-  console.log("Server läuft auf Port 3000");
+  console.log("Server läuft");
 });
