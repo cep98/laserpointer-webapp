@@ -3,7 +3,7 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8" />
-  <title>Laserpointer v2.7</title>
+  <title>Laserpointer v2.8</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <style>
     body {
@@ -62,7 +62,7 @@
   </style>
 </head>
 <body>
-  <div id="version">v2.7</div>
+  <div id="version">v2.8</div>
   <h2>Laserpointer Steuerung</h2>
   <div id="colorPicker"></div>
   <button id="toggleMode">Modus: Touch</button>
@@ -122,14 +122,14 @@
       }
     }
 
-    // Bewegung (device motion)
+    // Reine Bewegung (acceleration ohne Gravity)
     window.addEventListener("devicemotion", event => {
       if (mode !== "motion" || !isDrawing) return;
-      const ax = event.accelerationIncludingGravity.x || 0;
-      const ay = event.accelerationIncludingGravity.y || 0;
+      const ax = event.acceleration.x || 0;
+      const ay = event.acceleration.y || 0;
 
-      x += ax * 2;
-      y += ay * 2;  // ACHTUNG: Jetzt y nicht invertiert → entspricht richtiger Bewegung
+      x += ax * 5;   // Horizontal bewegen (schneller)
+      y += -ay * 5;  // Vertikal bewegen (oben = kleiner)
 
       const rect = drawarea.getBoundingClientRect();
       x = Math.max(0, Math.min(x, rect.width));
