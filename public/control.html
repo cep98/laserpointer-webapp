@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Laser Control</title>
+  <style>
+    body { margin:0; font-family: sans-serif; text-align: center; }
+    .colors { display: flex; flex-wrap: wrap; justify-content: center; margin: 10px; }
+    .color { width: 40px; height: 40px; margin: 5px; border-radius: 50%; border: 2px solid #000; }
+    .active { border: 4px solid #000; }
+    .mode-btn { margin: 10px; padding: 10px 20px; }
+  </style>
+</head>
+<body>
+  <h2>Laserpointer Steuerung</h2>
+  <div class="colors" id="colors"></div>
+  <button class="mode-btn" onclick="switchMode()">Modus: <span id="modeLabel">Punkt</span></button>
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    let mode = "point";
+    let color = "#ff0000";
+    let id = Math.random().toString(36).substring(2);
+    const colors = ["#ff0000","#00ff00","#0000ff","#ffff00","#ff00ff","#00ffff",
+                    "#ffffff","#000000","#ffa500","#800080","#008000","#808000",
+                    "#000080","#800000","#008080","#c0c0c0"];
+    const colorDiv = document.getElementById("colors");
+
+    colors.forEach(c => {
+      const div = document.createElement("div");
+      div.className = "color";
+      div.style.backgroundColor = c;
+      if (c === color) div.classList.add("active");
+      div.onclick = () => {
+        color = c;
+        document.querySelectorAll(".color").forEach(el => el.classList.remove("active"));
+        div.classList.add("active");
+      };
+      colorDiv.appendChild(div);
+    });
+
+    function switchMode() {
+      mode = (mode === "point") ? "line" : "point";
+      document.getElementById("modeLabel").textContent = (mode === "point") ? "Punkt" : "Linie";
+    }
+
+    window.addEventListener("deviceorientation", e => {
+      const x = (e.gamma + 90) / 180;
+      const y = (e.beta + 180) / 360;
+      socket.emit("draw", { id, x, y, color, mode });
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Admin Panel</title>
+  <style>html,body{margin:0;padding:0}canvas{display:block}</style>
+</head>
+<body>
+  <button onclick="clearCanvas()" style="position:absolute;z-index:2;">Alles löschen</button>
+  <canvas id="canvas"></canvas>
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    const socket = io();
+
+    socket.on("draw", ({ id, x, y, color, mode }) => {
+      if (mode === "point") {
+        ctx.beginPath();
+        ctx.fillStyle = color;
+        ctx.arc(x * canvas.width, y * canvas.height, 8, 0, 2 * Math.PI);
+        ctx.fill();
+      } else if (mode === "line") {
+        if (!window.lastPos) window.lastPos = {};
+        const lp = window.lastPos[id] || { x, y };
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(lp.x * canvas.width, lp.y * canvas.height);
+        ctx.lineTo(x * canvas.width, y * canvas.height);
+        ctx.stroke();
+        window.lastPos[id] = { x, y };
+      }
+    });
+
+    socket.on("clear", () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      window.lastPos = {};
+    });
+
+    canvas.addEventListener("mousedown", function (e) {
+      canvas.onmousemove = function (evt) {
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.beginPath();
+        ctx.arc(evt.offsetX, evt.offsetY, 20, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.globalCompositeOperation = 'source-over';
+      };
+    });
+    canvas.addEventListener("mouseup", () => {
+      canvas.onmousemove = null;
+    });
+
+    function clearCanvas() {
+      socket.emit("clear");
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+  </script>
+</body>
+</html>
