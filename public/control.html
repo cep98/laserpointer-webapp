@@ -46,7 +46,7 @@
   </style>
 </head>
 <body>
-  <div id="version">Version: v1.4</div>
+  <div id="version">Version: v1.5</div>
   <h2>Laserpointer Steuerung</h2>
   <div class="colors" id="colorPicker"></div>
   <button id="touchModeBtn">Modus: Touch</button>
@@ -77,14 +77,23 @@
       touchBtn.textContent = useTouch ? "Modus: Touch" : "Modus: Gyro";
     });
 
-    document.body.addEventListener("touchmove", (e) => {
-      if (!useTouch) return;
-      e.preventDefault();
-      const touch = e.touches[0];
+    function sendTouch(touch) {
       const x = touch.pageX / document.documentElement.clientWidth;
       const y = touch.pageY / document.documentElement.clientHeight;
       console.log("touch draw", x, y, currentColor);
       socket.emit("draw", { x, y, color: currentColor });
+    }
+
+    document.body.addEventListener("touchstart", (e) => {
+      if (!useTouch) return;
+      e.preventDefault();
+      sendTouch(e.touches[0]);
+    }, { passive: false });
+
+    document.body.addEventListener("touchmove", (e) => {
+      if (!useTouch) return;
+      e.preventDefault();
+      sendTouch(e.touches[0]);
     }, { passive: false });
 
     function handleOrientation(event) {
