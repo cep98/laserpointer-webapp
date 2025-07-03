@@ -1,136 +1,77 @@
-
 <!DOCTYPE html>
-<html lang="de">
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <title>Laserpointer Accel v1.0</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta charset="UTF-8">
+  <title>Laser Control</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    body {
-      background: black;
-      color: white;
-      font-family: sans-serif;
-      margin: 0;
-      padding: 0;
-      text-align: center;
-    }
-    #colorPicker {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      margin-top: 1rem;
-    }
-    .color {
-      width: 30px;
-      height: 30px;
-      border-radius: 50%;
-      border: 2px solid white;
-      margin: 5px;
-    }
-    #laserBtn, #resetBtn {
-      position: absolute;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 100px;
-      height: 50px;
-      font-size: 0.8rem;
-      background: red;
-      color: white;
-      border: 2px solid black;
-      border-radius: 10px;
-    }
+    body { margin: 0; overflow: hidden; background: black; color: white; font-family: sans-serif; }
+    #canvas { display: block; background: black; touch-action: none; }
     #laserBtn {
-      bottom: 80px;
-    }
-    #resetBtn {
-      bottom: 20px;
-      background: #444;
-    }
-    #drawarea {
-      margin: 1rem auto;
-      width: 90vmin;
-      height: 90vmin;
-      border: 2px dashed white;
-      touch-action: none;
-    }
-    #version {
       position: absolute;
-      top: 10px;
-      right: 12px;
-      font-size: 12px;
-      opacity: 0.5;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 80px; height: 80px;
+      border-radius: 50%;
+      background: red;
+      border: none;
     }
   </style>
 </head>
 <body>
-  <div id="version">vAccel1.0</div>
-  <h2>Laserpointer Bewegung</h2>
-  <div id="colorPicker"></div>
-  <button id="laserBtn">Laser</button>
-  <button id="resetBtn">Zentrum</button>
-  <div id="drawarea"></div>
-
-  <script src="/socket.io/socket.io.js"></script>
+  <canvas id="canvas"></canvas>
+  <button id="laserBtn"></button>
   <script>
     const socket = io();
-    let currentColor = "red";
-    let isDrawing = false;
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    let width, height;
 
-    const drawarea = document.getElementById("drawarea");
-    const laserBtn = document.getElementById("laserBtn");
-    const resetBtn = document.getElementById("resetBtn");
-    const colors = [
-      "red", "green", "blue", "yellow", "magenta", "cyan", "white", "black",
-      "orange", "purple", "lime", "pink", "brown", "gray", "lightblue", "gold"
-    ];
-
-    // Farbwahl
-    const colorPicker = document.getElementById("colorPicker");
-    colors.forEach(color => {
-      const c = document.createElement("div");
-      c.className = "color";
-      c.style.background = color;
-      c.addEventListener("click", () => currentColor = color);
-      colorPicker.appendChild(c);
-    });
-
-    laserBtn.addEventListener("touchstart", () => isDrawing = true);
-    laserBtn.addEventListener("touchend", () => isDrawing = false);
-    resetBtn.addEventListener("touchstart", resetPosition);
-
-    // Position & Bewegung
-    let posX = 0.5, posY = 0.5;     // Start in der Mitte (0–1)
-    let velX = 0, velY = 0;
-
-    function resetPosition() {
-      posX = 0.5;
-      posY = 0.5;
-      velX = 0;
-      velY = 0;
+    function resizeCanvas() {
+      width = window.innerWidth;
+      height = window.innerHeight;
+      canvas.width = width;
+      canvas.height = height;
     }
 
+    resizeCanvas();
+    window.addEventListener("resize", resizeCanvas);
+
+    const laserBtn = document.getElementById("laserBtn");
+    let drawing = false;
+
+    laserBtn.addEventListener("touchstart", () => drawing = true);
+    laserBtn.addEventListener("touchend", () => drawing = false);
+
     window.addEventListener("devicemotion", (event) => {
-      if (!isDrawing) return;
-      const ax = event.acceleration.x || 0;
-      const ay = event.acceleration.y || 0;
+      if (!drawing) return;
 
-      // Zeitschritt simulieren
-      velX += ax * 0.02;
-      velY += -ay * 0.02;
+      const acc = event.accelerationIncludingGravity;
+      if (!acc) return;
 
-      // Dämpfung (Reibung)
-      velX *= 0.9;
-      velY *= 0.9;
+      // Z: hoch/runter, X: seitlich
+      const x = acc.x; 
+      const z = acc.z;
 
-      posX += velX * 0.02;
-      posY += velY * 0.02;
+      // Normalisieren
+      const normX = Math.max(0, Math.min(1, (x + 10) / 20));
+      const normZ = Math.max(0, Math.min(1, (z + 10) / 20));
 
-      // Begrenzen
-      posX = Math.max(0, Math.min(1, posX));
-      posY = Math.max(0, Math.min(1, posY));
+      const drawX = normX * width;
+      const drawY = normZ * height;
 
-      socket.emit("draw", { x: posX, y: posY, color: currentColor });
+      socket.emit("draw", { x: drawX, y: drawY, color: "red" });
     });
+
+    // Zum Test auch Touch direkt auf Fläche aktivieren
+    canvas.addEventListener("touchmove", (e) => {
+      e.preventDefault();
+      if (e.touches.length > 0) {
+        const touch = e.touches[0];
+        socket.emit("draw", { x: touch.clientX, y: touch.clientY, color: "red" });
+      }
+    }, { passive: false });
   </script>
+  <script src="/socket.io/socket.io.js"></script>
 </body>
 </html>
