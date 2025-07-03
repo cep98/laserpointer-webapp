@@ -1,42 +1,32 @@
+
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8">
-  <title>Beamer Display</title>
-  <style>html,body{margin:0;padding:0}canvas{display:block}</style>
+  <title>Laser Display</title>
+  <style>
+    html, body { margin: 0; padding: 0; overflow: hidden; background: black; }
+    canvas { display: block; }
+  </style>
 </head>
 <body>
   <canvas id="canvas"></canvas>
-  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script>
+    const socket = io();
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
-    const socket = io();
 
-    socket.on("draw", ({ id, x, y, color, mode }) => {
-      if (mode === "point") {
-        ctx.beginPath();
-        ctx.fillStyle = color;
-        ctx.arc(x * canvas.width, y * canvas.height, 8, 0, 2 * Math.PI);
-        ctx.fill();
-      } else if (mode === "line") {
-        if (!window.lastPos) window.lastPos = {};
-        const lp = window.lastPos[id] || { x, y };
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 5;
-        ctx.beginPath();
-        ctx.moveTo(lp.x * canvas.width, lp.y * canvas.height);
-        ctx.lineTo(x * canvas.width, y * canvas.height);
-        ctx.stroke();
-        window.lastPos[id] = { x, y };
-      }
+    socket.on("draw", ({x, y, color}) => {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(x, y, 8, 0, Math.PI * 2);
+      ctx.fill();
     });
 
     socket.on("clear", () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      window.lastPos = {};
     });
   </script>
 </body>
