@@ -39,11 +39,14 @@
       border: 2px solid black;
       margin: 5px;
     }
-    #touchModeBtn {
+    #touchModeBtn, #laserBtn {
       display: block;
       margin: 1.2rem auto;
       font-size: 1rem;
       padding: 0.5rem 1rem;
+    }
+    #laserBtn {
+      display: none;
     }
     #drawarea {
       margin: 1rem auto;
@@ -53,13 +56,17 @@
       box-sizing: border-box;
       touch-action: none;
     }
+    .no-border {
+      border: none !important;
+    }
   </style>
 </head>
 <body>
-  <div id="version">Version: v1.9</div>
+  <div id="version">Version: v2.0</div>
   <h2>Laserpointer Steuerung</h2>
   <div class="colors" id="colorPicker"></div>
   <button id="touchModeBtn">Modus: Touch</button>
+  <button id="laserBtn">Laser aktiv (halten)</button>
   <div id="drawarea"></div>
 
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
@@ -69,6 +76,7 @@
     let useTouch = true;
     let gyroEnabled = false;
     let currentColor = "red";
+    let laserActive = false;
 
     const colors = ["red", "green", "blue", "yellow", "magenta", "cyan", "white", "black", "orange", "purple", "darkgreen"];
     const colorPicker = document.getElementById("colorPicker");
@@ -83,16 +91,26 @@
       colorPicker.appendChild(c);
     });
 
+    const drawarea = document.getElementById("drawarea");
     const touchBtn = document.getElementById("touchModeBtn");
+    const laserBtn = document.getElementById("laserBtn");
+
     touchBtn.addEventListener("click", () => {
       useTouch = !useTouch;
       touchBtn.textContent = useTouch ? "Modus: Touch" : "Modus: Gyro";
+      laserBtn.style.display = useTouch ? "none" : "block";
+      drawarea.classList.toggle("no-border", !useTouch);
       if (!useTouch && !gyroEnabled) {
         requestGyroAccess();
       }
     });
 
-    const drawarea = document.getElementById("drawarea");
+    laserBtn.addEventListener("touchstart", (e) => {
+      laserActive = true;
+    });
+    laserBtn.addEventListener("touchend", (e) => {
+      laserActive = false;
+    });
 
     function sendTouch(touch) {
       const rect = drawarea.getBoundingClientRect();
@@ -116,12 +134,13 @@
     }, { passive: false });
 
     function handleOrientation(event) {
-      if (useTouch) return;
-      const gamma = event.gamma;
-      const beta = event.beta;
+      if (useTouch || !laserActive) return;
 
-      let x = (gamma + 90) / 180;
-      let y = (beta + 180) / 360;
+      const gamma = event.gamma;  // links/rechts
+      const beta = event.beta;    // vorne/hinten
+
+      let x = (gamma + 45) / 90;
+      let y = 1 - ((beta + 30) / 60);
 
       x = Math.max(0, Math.min(1, x));
       y = Math.max(0, Math.min(1, y));
