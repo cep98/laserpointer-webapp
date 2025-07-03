@@ -3,52 +3,53 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8" />
-  <title>Laser Display v1.3</title>
+  <title>Laser Display</title>
   <style>
     html, body {
       margin: 0;
       padding: 0;
       overflow: hidden;
       background: black;
+      height: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
     }
     #version {
       position: absolute;
       top: 8px;
-      left: 12px;
+      right: 12px;
       font-size: 0.9em;
       background: #eee;
       padding: 4px 8px;
       border-radius: 6px;
       font-weight: bold;
       z-index: 10;
+      color: black;
     }
     canvas {
+      width: 90vmin;
+      height: 90vmin;
+      background: black;
       display: block;
     }
   </style>
 </head>
 <body>
-  <div id="version">Display v1.3</div>
-  <canvas id="canvas"></canvas>
+  <div id="version">Version: v1.8</div>
+  <canvas id="canvas" width="900" height="900"></canvas>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script>
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
 
-    function resize() {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-    }
-    resize();
-    window.addEventListener("resize", resize);
-
     const socket = io();
 
-    socket.on("draw", ({x, y, color}) => {
-      const px = x * canvas.width;
-      const py = y * canvas.height;
-      console.log("draw @", px, py, color);
-      ctx.fillStyle = color;
+    socket.on("draw", (data) => {
+      const px = data.x * canvas.width;
+      const py = data.y * canvas.height;
+      console.log("received draw", px, py, data.color);
+      ctx.fillStyle = data.color;
       ctx.beginPath();
       ctx.arc(px, py, 10, 0, Math.PI * 2);
       ctx.fill();
