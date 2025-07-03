@@ -1,7 +1,7 @@
-
 <!DOCTYPE html>
 <html>
 <head>
+  <meta charset="utf-8" />
   <title>Laser Display</title>
   <style>
     html, body { margin: 0; padding: 0; overflow: hidden; background: black; }
@@ -12,16 +12,17 @@
   <canvas id="canvas"></canvas>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script>
-    const socket = io();
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
 
+    const socket = io();
     socket.on("draw", ({x, y, color}) => {
+      console.log("received draw", x, y, color);
       ctx.fillStyle = color;
       ctx.beginPath();
-      ctx.arc(x, y, 8, 0, Math.PI * 2);
+      ctx.arc(x, y, 10, 0, Math.PI * 2);
       ctx.fill();
     });
 
