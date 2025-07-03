@@ -2,121 +2,185 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8">
-  <title>Laserpointer Steuerung v2.5</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Laserpointer Steuerung</title>
   <style>
-    body {
-      background: black;
+    html, body {
       margin: 0;
-      overflow: hidden;
+      padding: 0;
       font-family: sans-serif;
-      color: white;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: flex-start;
+      overflow: hidden;
       height: 100vh;
-    }
-    #canvasContainer {
-      position: relative;
-      width: 90vmin;
-      height: 90vmin;
-      border: 2px solid white;
-      margin-top: 20px;
       touch-action: none;
-    }
-    #laserButton, #toggleMode {
-      margin-top: 12px;
-      padding: 12px 24px;
-      border: none;
-      border-radius: 24px;
-      background: #ff0000;
-      color: white;
-      font-size: 16px;
+      background: #fff;
+      position: relative;
     }
     #version {
       position: absolute;
-      bottom: 10px;
-      right: 10px;
-      font-size: 12px;
-      opacity: 0.5;
+      top: 8px;
+      right: 12px;
+      font-size: 0.9em;
+      background: #eee;
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-weight: bold;
+      z-index: 10;
+    }
+    .colors {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-top: 3rem;
+    }
+    .color {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: 2px solid black;
+      margin: 5px;
+    }
+    #touchModeBtn {
+      display: block;
+      margin: 1.2rem auto;
+      font-size: 1rem;
+      padding: 0.5rem 1rem;
+    }
+    #laserBtn {
+      position: absolute;
+      
+      left: 50%;
+      transform: translateX(-50%);
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      font-size: 0.8rem;
+      font-weight: bold;
+      border: 2px solid black;
+      background: red;
+      color: white;
+      display: none;
+      z-index: 5;
+    }
+    #drawarea {
+      margin: 1rem auto;
+      width: 90vmin;
+      height: 90vmin;
+      border: 3px dashed #999;
+      box-sizing: border-box;
+      touch-action: none;
+    }
+    .no-border {
+      border: none !important;
     }
   </style>
 </head>
 <body>
-  <h2>Laserpointer v2.5</h2>
-  <div id="canvasContainer">
-    <canvas id="canvas" width="500" height="500"></canvas>
-    <div id="version">v2.5</div>
-  </div>
-  <button id="laserButton">Laser AN</button>
-  <button id="toggleMode">Modus: Touch</button>
+  <div id="version">Version: v2.3</div>
+  <h2>Laserpointer Steuerung</h2>
+  <div class="colors" id="colorPicker"></div>
+  <button id="touchModeBtn">Modus: Touch</button>
+  <button id="laserBtn">Laser</button>
+  <div id="drawarea"></div>
 
-  <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script>
     const socket = io();
-    const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d');
-    let color = "red";
 
-    let mode = "touch"; // or "gyro"
-    let drawing = false;
+    let useTouch = true;
+    let gyroEnabled = false;
+    let currentColor = "red";
+    let laserActive = false;
 
-    const laserButton = document.getElementById('laserButton');
-    const toggleMode = document.getElementById('toggleMode');
+    const colors = ["red", "green", "blue", "yellow", "magenta", "cyan", "white", "black", "orange", "purple", "darkgreen"];
+    const colorPicker = document.getElementById("colorPicker");
 
-    function drawDot(x, y) {
-      socket.emit("draw", { x, y, color });
+    colors.forEach(color => {
+      const c = document.createElement("div");
+      c.className = "color";
+      c.style.background = color;
+      c.addEventListener("click", () => {
+        currentColor = color;
+      });
+      colorPicker.appendChild(c);
+    });
+
+    const drawarea = document.getElementById("drawarea");
+    const touchBtn = document.getElementById("touchModeBtn");
+    const laserBtn = document.getElementById("laserBtn");
+
+    touchBtn.addEventListener("click", () => {
+      useTouch = !useTouch;
+      touchBtn.textContent = useTouch ? "Modus: Touch" : "Modus: Gyro";
+      laserBtn.style.display = useTouch ? "none" : "block";
+      drawarea.classList.toggle("no-border", !useTouch);
+      if (!useTouch && !gyroEnabled) {
+        requestGyroAccess();
+      }
+    });
+
+    laserBtn.addEventListener("touchstart", (e) => {
+      laserActive = true;
+    });
+    laserBtn.addEventListener("touchend", (e) => {
+      laserActive = false;
+    });
+
+    function sendTouch(touch) {
+      const rect = drawarea.getBoundingClientRect();
+      const x = (touch.clientX - rect.left) / rect.width;
+      const y = (touch.clientY - rect.top) / rect.height;
+      if (x >= 0 && x <= 1 && y >= 0 && y <= 1) {
+        socket.emit("draw", { x, y, color: currentColor });
+      }
     }
 
-    canvas.addEventListener("touchstart", e => {
-      if (mode !== "touch") return;
-      drawing = true;
-      handleTouch(e);
-    });
-    canvas.addEventListener("touchmove", e => {
-      if (mode !== "touch" || !drawing) return;
-      handleTouch(e);
-    });
-    canvas.addEventListener("touchend", () => drawing = false);
+    drawarea.addEventListener("touchstart", (e) => {
+      if (!useTouch) return;
+      e.preventDefault();
+      sendTouch(e.touches[0]);
+    }, { passive: false });
 
-    function handleTouch(e) {
-      const rect = canvas.getBoundingClientRect();
-      const touch = e.touches[0];
-      const x = touch.clientX - rect.left;
-      const y = touch.clientY - rect.top;
-      drawDot(x, y);
+    drawarea.addEventListener("touchmove", (e) => {
+      if (!useTouch) return;
+      e.preventDefault();
+      sendTouch(e.touches[0]);
+    }, { passive: false });
+
+    function handleOrientation(event) {
+      if (useTouch || !laserActive) return;
+
+      const gamma = event.gamma;  // links/rechts
+      const beta = event.beta;    // vorne/hinten
+
+      let x = (gamma + 20) / 40;
+      let y = 1 - ((beta + 30) / 60);
+
+      x = Math.max(0, Math.min(1, x));
+      y = Math.max(0, Math.min(1, y));
+
+      socket.emit("draw", { x, y, color: currentColor });
     }
 
-    let centerX = 0;
-    let centerY = 0;
-
-    laserButton.addEventListener("touchstart", () => {
-      if (mode === "gyro") drawing = true;
-    });
-    laserButton.addEventListener("touchend", () => {
-      if (mode === "gyro") drawing = false;
-    });
-
-    toggleMode.addEventListener("click", () => {
-      mode = (mode === "touch") ? "gyro" : "touch";
-      toggleMode.textContent = "Modus: " + (mode === "touch" ? "Touch" : "Gyro");
-    });
-
-    window.addEventListener("deviceorientation", e => {
-      if (mode !== "gyro" || !drawing) return;
-      const gamma = e.gamma; // left/right
-      const beta = e.beta;   // front/back
-
-      const w = canvas.width;
-      const h = canvas.height;
-
-      const x = w / 2 + (gamma / 30) * (w / 2);
-      const y = h / 2 + (beta / 30) * (h / 2);
-
-      drawDot(x, y);
-    }, true);
+    function requestGyroAccess() {
+      if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
+        DeviceOrientationEvent.requestPermission()
+          .then(state => {
+            if (state === "granted") {
+              gyroEnabled = true;
+              window.addEventListener("deviceorientation", handleOrientation);
+              console.log("Gyro permission granted");
+            } else {
+              alert("Gyroskop-Zugriff verweigert.");
+            }
+          })
+          .catch(console.error);
+      } else {
+        gyroEnabled = true;
+        window.addEventListener("deviceorientation", handleOrientation);
+        console.log("Gyro permission not required");
+      }
+    }
   </script>
 </body>
 </html>
