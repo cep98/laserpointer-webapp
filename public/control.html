@@ -3,184 +3,124 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Laserpointer Steuerung</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Laser Control v2.4</title>
   <style>
-    html, body {
+    body {
       margin: 0;
-      padding: 0;
+      background: #000;
+      color: white;
       font-family: sans-serif;
       overflow: hidden;
-      height: 100vh;
-      touch-action: none;
-      background: #fff;
-      position: relative;
+      text-align: center;
     }
-    #version {
-      position: absolute;
-      top: 8px;
-      right: 12px;
-      font-size: 0.9em;
-      background: #eee;
-      padding: 4px 8px;
-      border-radius: 6px;
-      font-weight: bold;
-      z-index: 10;
-    }
-    .colors {
+    #color-buttons {
       display: flex;
-      flex-wrap: wrap;
       justify-content: center;
-      margin-top: 3rem;
+      flex-wrap: wrap;
+      margin: 10px;
     }
-    .color {
+    .color-btn {
       width: 40px;
       height: 40px;
-      border-radius: 50%;
-      border: 2px solid black;
       margin: 5px;
-    }
-    #touchModeBtn {
-      display: block;
-      margin: 1.2rem auto;
-      font-size: 1rem;
-      padding: 0.5rem 1rem;
+      border-radius: 50%;
+      border: 2px solid white;
     }
     #laserBtn {
-      position: absolute;
-      
-      left: 50%;
-      transform: translateX(-50%);
       width: 80px;
       height: 80px;
       border-radius: 50%;
-      font-size: 0.8rem;
-      font-weight: bold;
-      border: 2px solid black;
+      font-size: 16px;
+      margin: 20px auto;
       background: red;
       color: white;
-      display: none;
-      z-index: 5;
-    }
-    #drawarea {
-      margin: 1rem auto;
-      width: 90vmin;
-      height: 90vmin;
-      border: 3px dashed #999;
-      box-sizing: border-box;
+      border: none;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
       touch-action: none;
     }
-    .no-border {
-      border: none !important;
+    #version {
+      position: fixed;
+      bottom: 10px;
+      width: 100%;
+      font-size: 14px;
+      color: #888;
     }
   </style>
 </head>
 <body>
-  <div id="version">Version: v2.1</div>
   <h2>Laserpointer Steuerung</h2>
-  <div class="colors" id="colorPicker"></div>
-  <button id="touchModeBtn">Modus: Touch</button>
+  <div id="color-buttons"></div>
   <button id="laserBtn">Laser</button>
-  <div id="drawarea"></div>
+  <div id="version">v2.4</div>
 
-  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
   <script>
     const socket = io();
+    let color = "red";
+    let isDrawing = false;
+    let useGyro = true;
+    let pointer = { x: 0.5, y: 0.5 }; // Normalisiert
+    let canvasSize = 500;
 
-    let useTouch = true;
-    let gyroEnabled = false;
-    let currentColor = "red";
-    let laserActive = false;
-
-    const colors = ["red", "green", "blue", "yellow", "magenta", "cyan", "white", "black", "orange", "purple", "darkgreen"];
-    const colorPicker = document.getElementById("colorPicker");
-
-    colors.forEach(color => {
-      const c = document.createElement("div");
-      c.className = "color";
-      c.style.background = color;
-      c.addEventListener("click", () => {
-        currentColor = color;
-      });
-      colorPicker.appendChild(c);
+    const colors = ["red","green","blue","yellow","magenta","cyan","white","black","orange","purple","lime"];
+    const colorContainer = document.getElementById("color-buttons");
+    colors.forEach(c => {
+      const btn = document.createElement("button");
+      btn.className = "color-btn";
+      btn.style.background = c;
+      btn.onclick = () => color = c;
+      colorContainer.appendChild(btn);
     });
 
-    const drawarea = document.getElementById("drawarea");
-    const touchBtn = document.getElementById("touchModeBtn");
+    window.addEventListener("deviceorientation", e => {
+      if (!useGyro) return;
+      const gamma = e.gamma || 0;
+      const beta = e.beta || 0;
+
+      let gx = Math.max(-15, Math.min(15, gamma));
+      let gy = Math.max(-15, Math.min(15, beta - 45));
+
+      pointer.x = 0.5 + gx / 30;
+      pointer.y = 0.5 + gy / 30;
+    });
+
+    window.addEventListener("touchstart", e => {
+      useGyro = false;
+      isDrawing = true;
+      updatePointer(e.touches[0]);
+    });
+    window.addEventListener("touchmove", e => {
+      if (!useGyro && isDrawing) updatePointer(e.touches[0]);
+    });
+    window.addEventListener("touchend", () => isDrawing = false);
+
+    function updatePointer(touch) {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      pointer.x = touch.clientX / w;
+      pointer.y = (touch.clientY - 120) / (h - 150);
+    }
+
+    function sendPointer() {
+      if (isDrawing) {
+        socket.emit("draw", { x: pointer.x, y: pointer.y, color });
+      }
+      requestAnimationFrame(sendPointer);
+    }
+    sendPointer();
+
     const laserBtn = document.getElementById("laserBtn");
-
-    touchBtn.addEventListener("click", () => {
-      useTouch = !useTouch;
-      touchBtn.textContent = useTouch ? "Modus: Touch" : "Modus: Gyro";
-      laserBtn.style.display = useTouch ? "none" : "block";
-      drawarea.classList.toggle("no-border", !useTouch);
-      if (!useTouch && !gyroEnabled) {
-        requestGyroAccess();
-      }
-    });
-
-    laserBtn.addEventListener("touchstart", (e) => {
-      laserActive = true;
-    });
-    laserBtn.addEventListener("touchend", (e) => {
-      laserActive = false;
-    });
-
-    function sendTouch(touch) {
-      const rect = drawarea.getBoundingClientRect();
-      const x = (touch.clientX - rect.left) / rect.width;
-      const y = (touch.clientY - rect.top) / rect.height;
-      if (x >= 0 && x <= 1 && y >= 0 && y <= 1) {
-        socket.emit("draw", { x, y, color: currentColor });
-      }
-    }
-
-    drawarea.addEventListener("touchstart", (e) => {
-      if (!useTouch) return;
+    laserBtn.addEventListener("touchstart", e => {
+      isDrawing = true;
       e.preventDefault();
-      sendTouch(e.touches[0]);
     }, { passive: false });
-
-    drawarea.addEventListener("touchmove", (e) => {
-      if (!useTouch) return;
-      e.preventDefault();
-      sendTouch(e.touches[0]);
-    }, { passive: false });
-
-    function handleOrientation(event) {
-      if (useTouch || !laserActive) return;
-
-      const gamma = event.gamma;  // links/rechts
-      const beta = event.beta;    // vorne/hinten
-
-      let x = (gamma + 20) / 40;
-      let y = 1 - ((beta + 30) / 60);
-
-      x = Math.max(0, Math.min(1, x));
-      y = Math.max(0, Math.min(1, y));
-
-      socket.emit("draw", { x, y, color: currentColor });
-    }
-
-    function requestGyroAccess() {
-      if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
-        DeviceOrientationEvent.requestPermission()
-          .then(state => {
-            if (state === "granted") {
-              gyroEnabled = true;
-              window.addEventListener("deviceorientation", handleOrientation);
-              console.log("Gyro permission granted");
-            } else {
-              alert("Gyroskop-Zugriff verweigert.");
-            }
-          })
-          .catch(console.error);
-      } else {
-        gyroEnabled = true;
-        window.addEventListener("deviceorientation", handleOrientation);
-        console.log("Gyro permission not required");
-      }
-    }
+    laserBtn.addEventListener("touchend", () => {
+      isDrawing = false;
+    });
   </script>
 </body>
 </html>
