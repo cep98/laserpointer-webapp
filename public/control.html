@@ -1,65 +1,102 @@
+
 <!DOCTYPE html>
-<html>
+<html lang="de">
 <head>
-  <meta charset="utf-8" />
-  <title>Laser Control</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Laserpointer Steuerung</title>
   <style>
-    body { background: white; font-family: sans-serif; text-align: center; margin: 2em; }
-    button, .color { margin: 0.5em; padding: 1em; font-size: 1em; }
-    .color { display: inline-block; width: 40px; height: 40px; border-radius: 50%; border: 2px solid black; cursor: pointer; }
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      margin: 0;
+      overflow: hidden;
+      touch-action: none;
+    }
+    .colors {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-top: 1rem;
+    }
+    .color {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: 2px solid black;
+      margin: 5px;
+    }
   </style>
 </head>
 <body>
-  <h1>Laserpointer Steuerung (Debug)</h1>
-  <div>
-    <div class="color" style="background:red;" data-color="red"></div>
-    <div class="color" style="background:green;" data-color="green"></div>
-    <div class="color" style="background:blue;" data-color="blue"></div>
-    <div class="color" style="background:yellow;" data-color="yellow"></div>
-    <div class="color" style="background:magenta;" data-color="magenta"></div>
-    <div class="color" style="background:cyan;" data-color="cyan"></div>
-    <div class="color" style="background:white;" data-color="white"></div>
-    <div class="color" style="background:black;" data-color="black"></div>
-  </div>
-  <p><button id="modeBtn">Modus: Touch</button></p>
-  <p id="status">Aktiver Modus: Touch</p>
-
+  <h2>Laserpointer Steuerung</h2>
+  <div class="colors" id="colorPicker"></div>
+  <button id="touchModeBtn">Modus: Touch</button>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script>
     const socket = io();
-    let useGyro = false;
-    let color = 'red';
-    let status = document.getElementById("status");
 
-    document.querySelectorAll(".color").forEach(el => {
-      el.onclick = () => {
-        color = el.dataset.color;
-      };
+    let useTouch = true;
+    let currentColor = "red";
+
+    const colors = ["red", "green", "blue", "yellow", "magenta", "cyan", "white", "black", "orange", "purple", "darkgreen"];
+    const colorPicker = document.getElementById("colorPicker");
+
+    colors.forEach(color => {
+      const c = document.createElement("div");
+      c.className = "color";
+      c.style.background = color;
+      c.addEventListener("click", () => {
+        currentColor = color;
+      });
+      colorPicker.appendChild(c);
     });
 
-    document.getElementById("modeBtn").onclick = () => {
-      useGyro = !useGyro;
-      status.textContent = "Aktiver Modus: " + (useGyro ? "Gyro" : "Touch");
-    };
+    // Toggle Touch / Gyro
+    const touchBtn = document.getElementById("touchModeBtn");
+    touchBtn.addEventListener("click", () => {
+      useTouch = !useTouch;
+      touchBtn.textContent = useTouch ? "Modus: Touch" : "Modus: Gyro";
+    });
 
-    if (window.DeviceOrientationEvent) {
-      window.addEventListener("deviceorientation", e => {
-        if (!useGyro) return;
-        let x = ((e.gamma + 90) / 180) * window.innerWidth;
-        let y = ((e.beta + 90) / 180) * window.innerHeight;
-        console.log("sending draw data", {x, y, color});
-        socket.emit("draw", { x, y, color });
-      });
+    // Touch position senden
+    document.body.addEventListener("touchmove", (e) => {
+      if (!useTouch) return;
+      e.preventDefault();
+      const touch = e.touches[0];
+      const x = touch.clientX / window.innerWidth;
+      const y = touch.clientY / window.innerHeight;
+      socket.emit("draw", { x, y, color: currentColor });
+    }, { passive: false });
+
+    // Gyroskop-Zugriff
+    function handleOrientation(event) {
+      if (useTouch) return;
+      const gamma = event.gamma; // links/rechts
+      const beta = event.beta;   // vor/zurück
+
+      let x = (gamma + 90) / 180;
+      let y = (beta + 180) / 360;
+
+      x = Math.max(0, Math.min(1, x));
+      y = Math.max(0, Math.min(1, y));
+
+      socket.emit("draw", { x, y, color: currentColor });
     }
 
-    window.addEventListener("touchmove", e => {
-      if (useGyro) return;
-      let t = e.touches[0];
-      let x = t.clientX;
-      let y = t.clientY;
-      console.log("sending draw data", {x, y, color});
-      socket.emit("draw", { x, y, color });
-    });
+    if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
+      DeviceOrientationEvent.requestPermission()
+        .then(state => {
+          if (state === "granted") {
+            window.addEventListener("deviceorientation", handleOrientation);
+          } else {
+            alert("Gyroskop-Zugriff verweigert.");
+          }
+        })
+        .catch(console.error);
+    } else {
+      window.addEventListener("deviceorientation", handleOrientation);
+    }
   </script>
 </body>
 </html>
