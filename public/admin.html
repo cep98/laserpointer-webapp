@@ -1,61 +1,55 @@
+
 <!DOCTYPE html>
-<html>
+<html lang="de">
 <head>
-  <meta charset="UTF-8">
-  <title>Admin Panel</title>
-  <style>html,body{margin:0;padding:0}canvas{display:block}</style>
+  <meta charset="UTF-8" />
+  <title>Admin Panel – Grenzwerte</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 20px;
+    }
+    label {
+      display: block;
+      margin-top: 10px;
+    }
+    input {
+      margin-left: 10px;
+      width: 60px;
+    }
+    #status {
+      margin-top: 20px;
+      color: green;
+      font-weight: bold;
+    }
+  </style>
 </head>
 <body>
-  <button onclick="clearCanvas()" style="position:absolute;z-index:2;">Alles löschen</button>
-  <canvas id="canvas"></canvas>
-  <script src="/socket.io/socket.io.js"></script>
+  <h2>Grenzwerte für Gyro-Kalibrierung</h2>
+
+  <label>gammaMin: <input type="number" id="gammaMin" value="-20" /></label>
+  <label>gammaMax: <input type="number" id="gammaMax" value="20" /></label>
+  <label>betaMin: <input type="number" id="betaMin" value="-30" /></label>
+  <label>betaMax: <input type="number" id="betaMax" value="30" /></label>
+
+  <button onclick="sendBounds()">Senden</button>
+
+  <div id="status"></div>
+
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script>
-    const canvas = document.getElementById("canvas");
-    const ctx = canvas.getContext("2d");
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
     const socket = io();
 
-    socket.on("draw", ({ id, x, y, color, mode }) => {
-      if (mode === "point") {
-        ctx.beginPath();
-        ctx.fillStyle = color;
-        ctx.arc(x * canvas.width, y * canvas.height, 8, 0, 2 * Math.PI);
-        ctx.fill();
-      } else if (mode === "line") {
-        if (!window.lastPos) window.lastPos = {};
-        const lp = window.lastPos[id] || { x, y };
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 5;
-        ctx.beginPath();
-        ctx.moveTo(lp.x * canvas.width, lp.y * canvas.height);
-        ctx.lineTo(x * canvas.width, y * canvas.height);
-        ctx.stroke();
-        window.lastPos[id] = { x, y };
-      }
-    });
+    function sendBounds() {
+      const gammaMin = parseFloat(document.getElementById('gammaMin').value);
+      const gammaMax = parseFloat(document.getElementById('gammaMax').value);
+      const betaMin = parseFloat(document.getElementById('betaMin').value);
+      const betaMax = parseFloat(document.getElementById('betaMax').value);
 
-    socket.on("clear", () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      window.lastPos = {};
-    });
+      socket.emit("gyroBounds", { gammaMin, gammaMax, betaMin, betaMax });
 
-    canvas.addEventListener("mousedown", function (e) {
-      canvas.onmousemove = function (evt) {
-        ctx.globalCompositeOperation = 'destination-out';
-        ctx.beginPath();
-        ctx.arc(evt.offsetX, evt.offsetY, 20, 0, 2 * Math.PI);
-        ctx.fill();
-        ctx.globalCompositeOperation = 'source-over';
-      };
-    });
-    canvas.addEventListener("mouseup", () => {
-      canvas.onmousemove = null;
-    });
-
-    function clearCanvas() {
-      socket.emit("clear");
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      document.getElementById('status').textContent = "Gesendet!";
     }
   </script>
 </body>
