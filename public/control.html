@@ -6,25 +6,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Laserpointer Steuerung</title>
   <style>
-    body {
-      font-family: sans-serif;
-      text-align: center;
+    html, body {
       margin: 0;
+      padding: 0;
       overflow: hidden;
       touch-action: none;
-    }
-    .colors {
-      display: flex;
-      justify-content: center;
-      flex-wrap: wrap;
-      margin-top: 1rem;
-    }
-    .color {
-      width: 40px;
-      height: 40px;
-      border-radius: 50%;
-      border: 2px solid black;
-      margin: 5px;
+      font-family: sans-serif;
     }
     #version {
       position: absolute;
@@ -35,11 +22,31 @@
       padding: 4px 8px;
       border-radius: 6px;
       font-weight: bold;
+      z-index: 10;
+    }
+    .colors {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-top: 2.5rem;
+    }
+    .color {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: 2px solid black;
+      margin: 5px;
+    }
+    #touchModeBtn {
+      display: block;
+      margin: 1.5rem auto;
+      font-size: 1rem;
+      padding: 0.5rem 1rem;
     }
   </style>
 </head>
 <body>
-  <div id="version">Version: v1.3</div>
+  <div id="version">Version: v1.4</div>
   <h2>Laserpointer Steuerung</h2>
   <div class="colors" id="colorPicker"></div>
   <button id="touchModeBtn">Modus: Touch</button>
@@ -64,25 +71,22 @@
       colorPicker.appendChild(c);
     });
 
-    // Toggle Touch / Gyro
     const touchBtn = document.getElementById("touchModeBtn");
     touchBtn.addEventListener("click", () => {
       useTouch = !useTouch;
       touchBtn.textContent = useTouch ? "Modus: Touch" : "Modus: Gyro";
     });
 
-    // Touch
     document.body.addEventListener("touchmove", (e) => {
       if (!useTouch) return;
       e.preventDefault();
       const touch = e.touches[0];
-      const x = touch.clientX / window.innerWidth;
-      const y = touch.clientY / window.innerHeight;
+      const x = touch.pageX / document.documentElement.clientWidth;
+      const y = touch.pageY / document.documentElement.clientHeight;
       console.log("touch draw", x, y, currentColor);
       socket.emit("draw", { x, y, color: currentColor });
     }, { passive: false });
 
-    // Gyro
     function handleOrientation(event) {
       if (useTouch) return;
       const gamma = event.gamma;
@@ -116,7 +120,6 @@
       }
     }
 
-    // Request gyro access once page loads
     window.addEventListener("load", requestGyroAccess);
   </script>
 </body>
