@@ -9,9 +9,10 @@
     html, body {
       margin: 0;
       padding: 0;
-      overflow: hidden;
-      touch-action: none;
       font-family: sans-serif;
+      overflow: hidden;
+      height: 100vh;
+      touch-action: none;
     }
     #version {
       position: absolute;
@@ -28,7 +29,7 @@
       display: flex;
       flex-wrap: wrap;
       justify-content: center;
-      margin-top: 2.5rem;
+      margin-top: 3rem;
     }
     .color {
       width: 40px;
@@ -39,17 +40,26 @@
     }
     #touchModeBtn {
       display: block;
-      margin: 1.5rem auto;
+      margin: 1.2rem auto;
       font-size: 1rem;
       padding: 0.5rem 1rem;
+    }
+    #drawarea {
+      margin-top: 1rem;
+      width: 100%;
+      height: calc(100vh - 220px); /* Platz für UI oben einplanen */
+      border: 2px dashed #999;
+      position: relative;
+      box-sizing: border-box;
     }
   </style>
 </head>
 <body>
-  <div id="version">Version: v1.5</div>
+  <div id="version">Version: v1.6</div>
   <h2>Laserpointer Steuerung</h2>
   <div class="colors" id="colorPicker"></div>
   <button id="touchModeBtn">Modus: Touch</button>
+  <div id="drawarea"></div>
 
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script>
@@ -77,20 +87,25 @@
       touchBtn.textContent = useTouch ? "Modus: Touch" : "Modus: Gyro";
     });
 
+    const drawarea = document.getElementById("drawarea");
+
     function sendTouch(touch) {
-      const x = touch.pageX / document.documentElement.clientWidth;
-      const y = touch.pageY / document.documentElement.clientHeight;
-      console.log("touch draw", x, y, currentColor);
-      socket.emit("draw", { x, y, color: currentColor });
+      const rect = drawarea.getBoundingClientRect();
+      const x = (touch.clientX - rect.left) / rect.width;
+      const y = (touch.clientY - rect.top) / rect.height;
+      if (x >= 0 && x <= 1 && y >= 0 && y <= 1) {
+        console.log("touch draw", x, y, currentColor);
+        socket.emit("draw", { x, y, color: currentColor });
+      }
     }
 
-    document.body.addEventListener("touchstart", (e) => {
+    drawarea.addEventListener("touchstart", (e) => {
       if (!useTouch) return;
       e.preventDefault();
       sendTouch(e.touches[0]);
     }, { passive: false });
 
-    document.body.addEventListener("touchmove", (e) => {
+    drawarea.addEventListener("touchmove", (e) => {
       if (!useTouch) return;
       e.preventDefault();
       sendTouch(e.touches[0]);
