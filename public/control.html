@@ -14,6 +14,7 @@
       height: 100vh;
       touch-action: none;
       background: #fff;
+      position: relative;
     }
     #version {
       position: absolute;
@@ -39,14 +40,27 @@
       border: 2px solid black;
       margin: 5px;
     }
-    #touchModeBtn, #laserBtn {
+    #touchModeBtn {
       display: block;
       margin: 1.2rem auto;
       font-size: 1rem;
       padding: 0.5rem 1rem;
     }
     #laserBtn {
+      position: absolute;
+      bottom: 2rem;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      font-size: 0.8rem;
+      font-weight: bold;
+      border: 2px solid black;
+      background: red;
+      color: white;
       display: none;
+      z-index: 5;
     }
     #drawarea {
       margin: 1rem auto;
@@ -62,11 +76,11 @@
   </style>
 </head>
 <body>
-  <div id="version">Version: v2.0</div>
+  <div id="version">Version: v2.1</div>
   <h2>Laserpointer Steuerung</h2>
   <div class="colors" id="colorPicker"></div>
   <button id="touchModeBtn">Modus: Touch</button>
-  <button id="laserBtn">Laser aktiv (halten)</button>
+  <button id="laserBtn">Laser</button>
   <div id="drawarea"></div>
 
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
@@ -139,7 +153,7 @@
       const gamma = event.gamma;  // links/rechts
       const beta = event.beta;    // vorne/hinten
 
-      let x = (gamma + 45) / 90;
+      let x = (gamma + 30) / 60;
       let y = 1 - ((beta + 30) / 60);
 
       x = Math.max(0, Math.min(1, x));
