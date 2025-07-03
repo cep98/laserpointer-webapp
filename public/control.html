@@ -1,57 +1,145 @@
+
 <!DOCTYPE html>
 <html lang="de">
 <head>
-    <meta charset="UTF-8">
-    <title>Laser Control</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body { background: black; margin: 0; overflow: hidden; font-family: sans-serif; color: white; text-align: center; }
-        #canvasBox { position: relative; margin: 0 auto; border: 2px dashed grey; width: 90vmin; height: 90vmin; }
-        .color-button { width: 30px; height: 30px; border-radius: 50%; border: 2px solid black; display: inline-block; cursor: pointer; }
-        #drawButton { width: 100px; height: 100px; border-radius: 50%; background: red; color: white; border: none; font-size: 1.2em; margin-top: 20px; }
-    </style>
+  <meta charset="UTF-8" />
+  <title>Laserpointer v2.7</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <style>
+    body {
+      background: black;
+      color: white;
+      font-family: sans-serif;
+      margin: 0;
+      padding: 0;
+      text-align: center;
+    }
+    #colorPicker {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-top: 1rem;
+    }
+    .color {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      border: 2px solid white;
+      margin: 5px;
+    }
+    #toggleMode {
+      margin-top: 1rem;
+      padding: 0.5rem 1rem;
+    }
+    #laserBtn {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      font-size: 0.8rem;
+      background: red;
+      color: white;
+      border: 2px solid black;
+      display: none;
+    }
+    #drawarea {
+      margin: 1rem auto;
+      width: 90vmin;
+      height: 90vmin;
+      border: 2px dashed white;
+      touch-action: none;
+    }
+    #version {
+      position: absolute;
+      top: 10px;
+      right: 12px;
+      font-size: 12px;
+      opacity: 0.5;
+    }
+  </style>
 </head>
 <body>
-    <h2>Laserpointer Steuerung</h2>
-    <div>
-        <div class="color-button" style="background:red;" onclick="setColor('red')"></div>
-        <div class="color-button" style="background:green;" onclick="setColor('green')"></div>
-        <div class="color-button" style="background:blue;" onclick="setColor('blue')"></div>
-        <div class="color-button" style="background:yellow;" onclick="setColor('yellow')"></div>
-    </div>
-    <div id="canvasBox"></div>
-    <button id="drawButton">Laser</button>
-    <script src="/socket.io/socket.io.js"></script>
-    <script>
-        const socket = io();
-        let color = 'red';
-        let isDrawing = false;
-        let x = 150, y = 150;
+  <div id="version">v2.7</div>
+  <h2>Laserpointer Steuerung</h2>
+  <div id="colorPicker"></div>
+  <button id="toggleMode">Modus: Touch</button>
+  <button id="laserBtn">Laser</button>
+  <div id="drawarea"></div>
 
-        function setColor(c) { color = c; }
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    let currentColor = "red";
+    let mode = "touch"; // "touch" or "motion"
+    let isDrawing = false;
+    let x = 150, y = 150;
 
-        const box = document.getElementById('canvasBox');
-        const drawButton = document.getElementById('drawButton');
+    const drawarea = document.getElementById("drawarea");
+    const laserBtn = document.getElementById("laserBtn");
+    const toggleBtn = document.getElementById("toggleMode");
+    const colors = [
+      "red", "green", "blue", "yellow", "magenta", "cyan", "white", "black",
+      "orange", "purple", "lime", "pink", "brown", "gray", "lightblue", "gold"
+    ];
 
-        drawButton.addEventListener('touchstart', () => isDrawing = true);
-        drawButton.addEventListener('touchend', () => isDrawing = false);
+    // Farbwahl
+    const colorPicker = document.getElementById("colorPicker");
+    colors.forEach(color => {
+      const c = document.createElement("div");
+      c.className = "color";
+      c.style.background = color;
+      c.addEventListener("click", () => currentColor = color);
+      colorPicker.appendChild(c);
+    });
 
-        window.addEventListener('devicemotion', event => {
-            const ax = event.accelerationIncludingGravity.x || 0;
-            const ay = event.accelerationIncludingGravity.y || 0;
+    toggleBtn.addEventListener("click", () => {
+      mode = mode === "touch" ? "motion" : "touch";
+      toggleBtn.textContent = "Modus: " + (mode === "touch" ? "Touch" : "Bewegung");
+      laserBtn.style.display = (mode === "motion") ? "block" : "none";
+    });
 
-            // Richtung anpassen
-            x += ax * 2;
-            y += -ay * 2;
+    laserBtn.addEventListener("touchstart", () => isDrawing = true);
+    laserBtn.addEventListener("touchend", () => isDrawing = false);
 
-            // Begrenzung auf das Quadrat
-            x = Math.max(0, Math.min(x, box.offsetWidth));
-            y = Math.max(0, Math.min(y, box.offsetHeight));
+    drawarea.addEventListener("touchstart", e => {
+      if (mode !== "touch") return;
+      handleTouch(e.touches[0]);
+    });
+    drawarea.addEventListener("touchmove", e => {
+      if (mode !== "touch") return;
+      handleTouch(e.touches[0]);
+    });
 
-            if (isDrawing) {
-                socket.emit('draw', { x: x / box.offsetWidth, y: y / box.offsetHeight, color });
-            }
-        });
-    </script>
+    function handleTouch(touch) {
+      const rect = drawarea.getBoundingClientRect();
+      const tx = (touch.clientX - rect.left) / rect.width;
+      const ty = (touch.clientY - rect.top) / rect.height;
+      if (tx >= 0 && tx <= 1 && ty >= 0 && ty <= 1) {
+        socket.emit("draw", { x: tx, y: ty, color: currentColor });
+      }
+    }
+
+    // Bewegung (device motion)
+    window.addEventListener("devicemotion", event => {
+      if (mode !== "motion" || !isDrawing) return;
+      const ax = event.accelerationIncludingGravity.x || 0;
+      const ay = event.accelerationIncludingGravity.y || 0;
+
+      x += ax * 2;
+      y += ay * 2;  // ACHTUNG: Jetzt y nicht invertiert → entspricht richtiger Bewegung
+
+      const rect = drawarea.getBoundingClientRect();
+      x = Math.max(0, Math.min(x, rect.width));
+      y = Math.max(0, Math.min(y, rect.height));
+
+      const nx = x / rect.width;
+      const ny = y / rect.height;
+
+      socket.emit("draw", { x: nx, y: ny, color: currentColor });
+    });
+  </script>
 </body>
 </html>
