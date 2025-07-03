@@ -1,64 +1,64 @@
-
 <!DOCTYPE html>
 <html>
 <head>
+  <meta charset="utf-8" />
   <title>Laser Control</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    body { font-family: sans-serif; text-align: center; margin: 20px; }
-    .color { width: 40px; height: 40px; border-radius: 50%; display: inline-block; margin: 5px; border: 2px solid black; }
-    #toggleMode, #clearBtn { margin: 10px; padding: 10px; }
+    body { background: white; font-family: sans-serif; text-align: center; margin: 2em; }
+    button, .color { margin: 0.5em; padding: 1em; font-size: 1em; }
+    .color { display: inline-block; width: 40px; height: 40px; border-radius: 50%; border: 2px solid black; cursor: pointer; }
   </style>
 </head>
 <body>
-  <h2>Laserpointer Steuerung</h2>
-  <div id="colors"></div>
-  <br>
-  <button id="toggleMode">Modus: Touch</button>
-  <button id="clearBtn">Löschen</button>
+  <h1>Laserpointer Steuerung (Debug)</h1>
+  <div>
+    <div class="color" style="background:red;" data-color="red"></div>
+    <div class="color" style="background:green;" data-color="green"></div>
+    <div class="color" style="background:blue;" data-color="blue"></div>
+    <div class="color" style="background:yellow;" data-color="yellow"></div>
+    <div class="color" style="background:magenta;" data-color="magenta"></div>
+    <div class="color" style="background:cyan;" data-color="cyan"></div>
+    <div class="color" style="background:white;" data-color="white"></div>
+    <div class="color" style="background:black;" data-color="black"></div>
+  </div>
+  <p><button id="modeBtn">Modus: Touch</button></p>
+  <p id="status">Aktiver Modus: Touch</p>
 
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script>
     const socket = io();
-    let currentColor = "red";
     let useGyro = false;
+    let color = 'red';
+    let status = document.getElementById("status");
 
-    const colors = ["red","green","blue","yellow","magenta","cyan","white","black","orange","purple","darkgreen"];
-    const colorContainer = document.getElementById("colors");
-
-    colors.forEach(c => {
-      const btn = document.createElement("div");
-      btn.className = "color";
-      btn.style.background = c;
-      btn.onclick = () => currentColor = c;
-      colorContainer.appendChild(btn);
+    document.querySelectorAll(".color").forEach(el => {
+      el.onclick = () => {
+        color = el.dataset.color;
+      };
     });
 
-    const toggleBtn = document.getElementById("toggleMode");
-    toggleBtn.onclick = () => {
+    document.getElementById("modeBtn").onclick = () => {
       useGyro = !useGyro;
-      toggleBtn.textContent = useGyro ? "Modus: Gyro" : "Modus: Touch";
+      status.textContent = "Aktiver Modus: " + (useGyro ? "Gyro" : "Touch");
     };
 
-    document.getElementById("clearBtn").onclick = () => {
-      socket.emit("clear");
-    };
+    if (window.DeviceOrientationEvent) {
+      window.addEventListener("deviceorientation", e => {
+        if (!useGyro) return;
+        let x = ((e.gamma + 90) / 180) * window.innerWidth;
+        let y = ((e.beta + 90) / 180) * window.innerHeight;
+        console.log("sending draw data", {x, y, color});
+        socket.emit("draw", { x, y, color });
+      });
+    }
 
-    // Touch-Modus
-    document.body.addEventListener("touchmove", e => {
-      if (!useGyro && e.touches.length > 0) {
-        const touch = e.touches[0];
-        socket.emit("draw", { x: touch.clientX, y: touch.clientY, color: currentColor });
-      }
-    });
-
-    // Gyro-Modus
-    window.addEventListener("deviceorientation", e => {
-      if (useGyro) {
-        const x = (e.gamma + 90) / 180 * window.innerWidth;
-        const y = (e.beta + 90) / 180 * window.innerHeight;
-        socket.emit("draw", { x, y, color: currentColor });
-      }
+    window.addEventListener("touchmove", e => {
+      if (useGyro) return;
+      let t = e.touches[0];
+      let x = t.clientX;
+      let y = t.clientY;
+      console.log("sending draw data", {x, y, color});
+      socket.emit("draw", { x, y, color });
     });
   </script>
 </body>
