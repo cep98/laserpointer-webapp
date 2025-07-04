@@ -1,77 +1,149 @@
+
 <!DOCTYPE html>
-<html>
+<html lang="de">
 <head>
   <meta charset="UTF-8">
-  <title>Laser Control</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Laserpointer v3.1</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <style>
-    body { margin: 0; overflow: hidden; background: black; color: white; font-family: sans-serif; }
-    #canvas { display: block; background: black; touch-action: none; }
+    body {
+      background: black;
+      color: white;
+      font-family: sans-serif;
+      margin: 0;
+      padding: 0;
+      text-align: center;
+      overflow: hidden;
+    }
+    #colorPicker {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-top: 10px;
+    }
+    .color {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      border: 2px solid white;
+      margin: 4px;
+    }
+    #toggleMode {
+      margin-top: 10px;
+      padding: 6px 12px;
+      border: none;
+      border-radius: 4px;
+      background: #444;
+      color: white;
+      font-size: 14px;
+    }
     #laserBtn {
       position: absolute;
-      top: 50%; left: 50%;
+      top: 50%;
+      left: 50%;
       transform: translate(-50%, -50%);
-      width: 80px; height: 80px;
+      width: 60px;
+      height: 60px;
       border-radius: 50%;
       background: red;
       border: none;
     }
+    #drawarea {
+      margin: 10px auto;
+      width: 90vmin;
+      height: 90vmin;
+      border: 2px dashed white;
+      touch-action: none;
+      position: relative;
+    }
+    #version {
+      position: absolute;
+      top: 8px;
+      right: 12px;
+      font-size: 12px;
+      opacity: 0.5;
+    }
   </style>
 </head>
 <body>
-  <canvas id="canvas"></canvas>
+  <div id="version">v3.1</div>
+  <h2>Laserpointer Steuerung</h2>
+  <div id="colorPicker"></div>
+  <button id="toggleMode">Touch</button>
   <button id="laserBtn"></button>
+  <div id="drawarea"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
-    const canvas = document.getElementById("canvas");
-    const ctx = canvas.getContext("2d");
-    let width, height;
-
-    function resizeCanvas() {
-      width = window.innerWidth;
-      height = window.innerHeight;
-      canvas.width = width;
-      canvas.height = height;
-    }
-
-    resizeCanvas();
-    window.addEventListener("resize", resizeCanvas);
-
-    const laserBtn = document.getElementById("laserBtn");
+    let color = 'red';
+    let mode = 'touch'; // 'touch' or 'motion'
     let drawing = false;
+    let calib = { xMin: -10, xMax: 10, zMin: -10, zMax: 10 };
 
-    laserBtn.addEventListener("touchstart", () => drawing = true);
-    laserBtn.addEventListener("touchend", () => drawing = false);
-
-    window.addEventListener("devicemotion", (event) => {
-      if (!drawing) return;
-
-      const acc = event.accelerationIncludingGravity;
-      if (!acc) return;
-
-      // Z: hoch/runter, X: seitlich
-      const x = acc.x; 
-      const z = acc.z;
-
-      // Normalisieren
-      const normX = Math.max(0, Math.min(1, (x + 10) / 20));
-      const normZ = Math.max(0, Math.min(1, (z + 10) / 20));
-
-      const drawX = normX * width;
-      const drawY = normZ * height;
-
-      socket.emit("draw", { x: drawX, y: drawY, color: "red" });
+    // receive calibration
+    socket.on('calibration', data => {
+      calib = data;
+      console.log('Calibration updated', calib);
     });
 
-    // Zum Test auch Touch direkt auf Fläche aktivieren
-    canvas.addEventListener("touchmove", (e) => {
+    const colors = ['red','green','blue','yellow','magenta','cyan','white','black','orange','purple','lime','pink','brown','gray','lightblue','gold'];
+    const picker = document.getElementById('colorPicker');
+    colors.forEach(c => {
+      const el = document.createElement('div');
+      el.className = 'color';
+      el.style.background = c;
+      el.onclick = () => color = c;
+      picker.appendChild(el);
+    });
+
+    const toggleBtn = document.getElementById('toggleMode');
+    const laserBtn = document.getElementById('laserBtn');
+    const drawarea = document.getElementById('drawarea');
+
+    toggleBtn.onclick = () => {
+      mode = (mode === 'touch' ? 'motion' : 'touch');
+      toggleBtn.textContent = (mode === 'touch' ? 'Touch' : 'Motion');
+      laserBtn.style.display = (mode === 'motion' ? 'block' : 'none');
+    };
+
+    // touch drawing
+    drawarea.addEventListener('touchstart', e => {
+      if (mode !== 'touch') return;
       e.preventDefault();
-      if (e.touches.length > 0) {
-        const touch = e.touches[0];
-        socket.emit("draw", { x: touch.clientX, y: touch.clientY, color: "red" });
-      }
-    }, { passive: false });
+      drawing = true; handleTouch(e.touches[0]);
+    }, {passive:false});
+    drawarea.addEventListener('touchmove', e => {
+      if (mode !== 'touch' || !drawing) return;
+      e.preventDefault();
+      handleTouch(e.touches[0]);
+    }, {passive:false});
+    drawarea.addEventListener('touchend', () => { drawing=false; });
+
+    function handleTouch(t) {
+      const r = drawarea.getBoundingClientRect();
+      const nx = (t.clientX - r.left) / r.width;
+      const ny = (t.clientY - r.top) / r.height;
+      socket.emit('draw',{x:nx,y:ny,color});
+    }
+
+    // motion drawing
+    laserBtn.addEventListener('touchstart', () => drawing=true);
+    laserBtn.addEventListener('touchend', () => drawing=false);
+
+    window.addEventListener('devicemotion', ev => {
+      if (mode!=='motion' || !drawing) return;
+      const acc = ev.acceleration; 
+      if (!acc) return;
+      const x = acc.x || 0;
+      const z = acc.z || 0;
+      // map x to horizontal
+      let nx = (x - calib.xMin)/(calib.xMax - calib.xMin);
+      let nz = (z - calib.zMin)/(calib.zMax - calib.zMin);
+      nx = Math.max(0,Math.min(1,nx));
+      nz = Math.max(0,Math.min(1,nz));
+      socket.emit('draw',{x:nx,y:nz,color});
+    });
   </script>
-  <script src="/socket.io/socket.io.js"></script>
 </body>
 </html>
