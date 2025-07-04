@@ -9,8 +9,14 @@ io.on("connection", socket => {
   socket.on("draw", data => {
     socket.broadcast.emit("draw", data);
   });
+
   socket.on("clear", () => {
     io.emit("clear");
+  });
+
+  // 🔧 NEU: Kalibrierung von admin an control
+  socket.on("calibration", data => {
+    io.emit("calibration", data);
   });
 });
 
