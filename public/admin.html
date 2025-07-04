@@ -3,38 +3,120 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8" />
-  <title>Laser Admin</title>
+  <title>Laserpointer Adminpanel</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <style>
     body {
       background: #111;
-      color: white;
+      color: #fff;
       font-family: sans-serif;
       padding: 2rem;
+      max-width: 600px;
+      margin: auto;
+    }
+    h1 {
       text-align: center;
+      margin-bottom: 2rem;
+    }
+    .slider-block {
+      margin-bottom: 1.5rem;
+    }
+    label {
+      display: block;
+      margin-bottom: 0.5rem;
+    }
+    input[type="range"] {
+      width: 100%;
+    }
+    input[type="number"] {
+      width: 60px;
+      margin-left: 10px;
     }
     button {
-      font-size: 1.2rem;
+      margin-top: 2rem;
       padding: 1rem 2rem;
+      font-size: 1rem;
       background: red;
       color: white;
       border: none;
-      border-radius: 10px;
+      border-radius: 8px;
+      cursor: pointer;
     }
   </style>
 </head>
 <body>
-  <h1>Admin Oberfläche</h1>
-  <button id="clearBtn"></button>
+  <h1>Laserpointer Admin</h1>
+
+  <div class="slider-block">
+    <label for="xMin">Links-Anschlag (X min)</label>
+    <input id="xMin" type="range" min="-20" max="0" value="-10" step="0.1">
+    <input id="xMinVal" type="number" value="-10" step="0.1">
+  </div>
+
+  <div class="slider-block">
+    <label for="xMax">Rechts-Anschlag (X max)</label>
+    <input id="xMax" type="range" min="0" max="20" value="10" step="0.1">
+    <input id="xMaxVal" type="number" value="10" step="0.1">
+  </div>
+
+  <div class="slider-block">
+    <label for="zMin">Vorne-Anschlag (Z min)</label>
+    <input id="zMin" type="range" min="-20" max="0" value="-10" step="0.1">
+    <input id="zMinVal" type="number" value="-10" step="0.1">
+  </div>
+
+  <div class="slider-block">
+    <label for="zMax">Hinten-Anschlag (Z max)</label>
+    <input id="zMax" type="range" min="0" max="20" value="10" step="0.1">
+    <input id="zMaxVal" type="number" value="10" step="0.1">
+  </div>
+
+  <button id="clearBtn">🧹 Alles löschen</button>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
-    const clearBtn = document.getElementById("clearBtn");
 
-    clearBtn.addEventListener("click", () => {
+    const sliders = [
+      ["xMin", "xMinVal", "xMin"],
+      ["xMax", "xMaxVal", "xMax"],
+      ["zMin", "zMinVal", "zMin"],
+      ["zMax", "zMaxVal", "zMax"]
+    ];
+
+    const settings = {
+      xMin: -10,
+      xMax: 10,
+      zMin: -10,
+      zMax: 10
+    };
+
+    function emitCalibration() {
+      socket.emit("calibration", settings);
+    }
+
+    sliders.forEach(([sliderId, inputId, key]) => {
+      const slider = document.getElementById(sliderId);
+      const input = document.getElementById(inputId);
+
+      slider.addEventListener("input", () => {
+        settings[key] = parseFloat(slider.value);
+        input.value = slider.value;
+        emitCalibration();
+      });
+
+      input.addEventListener("input", () => {
+        settings[key] = parseFloat(input.value);
+        slider.value = input.value;
+        emitCalibration();
+      });
+    });
+
+    document.getElementById("clearBtn").addEventListener("click", () => {
       socket.emit("clear");
     });
+
+    emitCalibration();
   </script>
 </body>
 </html>
