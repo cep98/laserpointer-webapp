@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Laserpointer Control (Direkt Malen bei erster Kalibrierung)</title>
+  <title>Laserpointer Control – Dynamische Kalibrierung</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
     html, body {
@@ -12,17 +12,8 @@
       overflow: hidden;
       height: 100%;
     }
-    #canvasContainer {
-      position: relative;
-      width: 100vmin;
-      height: 100vmin;
-      margin: auto;
-      border: 1px solid #444;
-      background: #000;
-    }
     canvas {
-      width: 100%;
-      height: 100%;
+      display: none;
     }
     #controls {
       position: fixed;
@@ -41,19 +32,18 @@
       position: fixed;
       left: 50%;
       transform: translateX(-50%);
-      bottom: 25%;
-      width: 80px;
-      height: 80px;
-      border-radius: 40px;
+      bottom: 20%;
+      width: 120px;
+      height: 120px;
+      border-radius: 60px;
       background: red;
       border: none;
+      z-index: 10;
     }
   </style>
 </head>
 <body>
-  <div id="canvasContainer">
-    <canvas id="canvas" width="500" height="500"></canvas>
-  </div>
+  <canvas id="canvas" width="500" height="500"></canvas>
   <div id="controls">
     <div class="color" style="background:red" onclick="setColor('red')"></div>
     <div class="color" style="background:green" onclick="setColor('green')"></div>
@@ -70,24 +60,27 @@
     let laserActive = false;
     let calibrated = false;
     let alpha0 = 0, beta0 = 0;
+    let alphaMin = 0, alphaMax = 0;
+    let betaMin = 0, betaMax = 0;
 
-    function setColor(c) {
-      color = c;
-    }
+    let x = canvas.width / 2;
+    let y = canvas.height / 2;
 
-    let currentAlpha = null, currentBeta = null;
+    let currentAlpha = null;
+    let currentBeta = null;
 
     document.getElementById("laserButton").addEventListener("touchstart", e => {
       e.preventDefault();
-
+      laserActive = true;
       if (!calibrated && currentAlpha !== null && currentBeta !== null) {
         alpha0 = currentAlpha;
         beta0 = currentBeta;
+        alphaMin = alpha0;
+        alphaMax = alpha0;
+        betaMin = beta0;
+        betaMax = beta0;
         calibrated = true;
-        console.log("Kalibriert:", alpha0, beta0);
       }
-
-      laserActive = true;
     });
 
     document.getElementById("laserButton").addEventListener("touchend", e => {
@@ -95,16 +88,29 @@
       laserActive = false;
     });
 
+    function setColor(c) {
+      color = c;
+    }
+
     window.addEventListener("deviceorientation", e => {
       currentAlpha = e.alpha;
       currentBeta = e.beta;
 
       if (laserActive && calibrated) {
-        const relAlpha = currentAlpha - alpha0;
-        const relBeta = currentBeta - beta0;
+        // Track Bewegungsspielraum
+        if (currentAlpha < alphaMin) alphaMin = currentAlpha;
+        if (currentAlpha > alphaMax) alphaMax = currentAlpha;
+        if (currentBeta < betaMin) betaMin = currentBeta;
+        if (currentBeta > betaMax) betaMax = currentBeta;
 
-        const x = canvas.width / 2 - relAlpha * 5;
-        const y = canvas.height / 2 - relBeta * 5;
+        const alphaRange = alphaMax - alphaMin || 1;
+        const betaRange = betaMax - betaMin || 1;
+
+        const xNorm = (currentAlpha - alphaMin) / alphaRange;
+        const yNorm = (currentBeta - betaMin) / betaRange;
+
+        x = Math.max(0, Math.min(canvas.width, xNorm * canvas.width));
+        y = Math.max(0, Math.min(canvas.height, yNorm * canvas.height));
 
         socket.emit("draw", { x, y, color });
       }
