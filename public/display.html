@@ -2,36 +2,50 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Laser Display</title>
+  <title>Laserpointer Display (mit Randfeedback)</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
     html, body {
       margin: 0;
       padding: 0;
-      background: #000;
+      background: black;
       overflow: hidden;
     }
     canvas {
       display: block;
-      width: 100vmin;
-      height: 100vmin;
-      margin: auto;
-      background: #000;
+      margin: 0 auto;
+      background: black;
     }
   </style>
 </head>
 <body>
   <canvas id="canvas" width="500" height="500"></canvas>
+
   <script>
     const socket = io();
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
+
+    const EDGE_THRESHOLD = 2;
 
     socket.on("draw", data => {
       ctx.fillStyle = data.color;
       ctx.beginPath();
       ctx.arc(data.x, data.y, 4, 0, 2 * Math.PI);
       ctx.fill();
+
+      // Check for edge hits and send feedback
+      if (data.x <= EDGE_THRESHOLD) {
+        socket.emit("edgeHit", { side: "left" });
+      } else if (data.x >= canvas.width - EDGE_THRESHOLD) {
+        socket.emit("edgeHit", { side: "right" });
+      }
+
+      if (data.y <= EDGE_THRESHOLD) {
+        socket.emit("edgeHit", { side: "top" });
+      } else if (data.y >= canvas.height - EDGE_THRESHOLD) {
+        socket.emit("edgeHit", { side: "bottom" });
+      }
     });
 
     socket.on("clear", () => {
