@@ -16,10 +16,11 @@ io.on("connection", socket => {
     io.emit("clear");
   });
 
-  // Sensor-Daten weiterleiten (z. B. für debug.html)
   socket.on("sensorDump", data => {
-    io.emit("sensorDump", data);
-  });
+  console.log("SensorDump empfangen:", data);  // NEU!
+  io.emit("sensorDump", data);
+});
+
 });
 
 http.listen(process.env.PORT || 3000, () => {
