@@ -16,13 +16,4 @@ io.on("connection", socket => {
     io.emit("clear");
   });
 
-  socket.on("sensorDump", data => {
-  console.log("SensorDump empfangen:", data);  // NEU!
-  io.emit("sensorDump", data);
-});
-
-});
-
-http.listen(process.env.PORT || 3000, () => {
-  console.log("Server läuft");
-});
+  // Sensor-Daten weiter
