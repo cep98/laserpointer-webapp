@@ -1,58 +1,36 @@
-
 <!DOCTYPE html>
-<html lang="de">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <title>Gyro Sender</title>
+  <meta charset="UTF-8" />
+  <title>Gyro Dump</title>
   <script src="/socket.io/socket.io.js"></script>
-  <style>
-    body { background: #000; color: #0f0; font-family: monospace; padding: 20px; }
-  </style>
 </head>
 <body>
-  <h1>Gyro-Dump Sender</h1>
-  <p>Live-Daten werden gesendet...</p>
+  <h2>Gyro Sender (Handy)</h2>
   <script>
     const socket = io();
 
-    function requestPermission() {
-      if (typeof DeviceMotionEvent.requestPermission === 'function') {
-        DeviceMotionEvent.requestPermission().then(permissionState => {
-          if (permissionState === 'granted') {
-            startSending();
-          }
-        }).catch(console.error);
-      } else {
-        startSending();
-      }
-    }
-
-    function startSending() {
-      window.addEventListener('devicemotion', event => {
-        const { acceleration, accelerationIncludingGravity, rotationRate, interval } = event;
-        socket.emit('sensorDump', {
-          type: 'motion',
-          acceleration,
-          accelerationIncludingGravity,
-          rotationRate,
-          interval,
-          timestamp: Date.now()
-        });
+    if (window.DeviceMotionEvent) {
+      window.addEventListener('devicemotion', (event) => {
+        const data = {
+          acc: {
+            x: event.acceleration.x,
+            y: event.acceleration.y,
+            z: event.acceleration.z
+          },
+          rotRate: {
+            alpha: event.rotationRate?.alpha,
+            beta: event.rotationRate?.beta,
+            gamma: event.rotationRate?.gamma
+          },
+          interval: event.interval
+        };
+        console.log("Send:", data);
+        socket.emit("sensorDump", data);
       });
-
-      window.addEventListener('deviceorientation', event => {
-        const { alpha, beta, gamma } = event;
-        socket.emit('sensorDump', {
-          type: 'orientation',
-          alpha,
-          beta,
-          gamma,
-          timestamp: Date.now()
-        });
-      });
+    } else {
+      alert("DeviceMotion not supported.");
     }
-
-    requestPermission();
   </script>
 </body>
 </html>
