@@ -3,39 +3,34 @@
 <head>
   <meta charset="UTF-8">
   <title>Laser Display</title>
+  <script src="/socket.io/socket.io.js"></script>
   <style>
-    body, html {
+    html, body {
       margin: 0;
       padding: 0;
+      background: #000;
       overflow: hidden;
-      background: black;
     }
     canvas {
       display: block;
+      width: 100vmin;
+      height: 100vmin;
+      margin: auto;
+      background: #000;
     }
   </style>
 </head>
 <body>
-  <canvas id="displayCanvas"></canvas>
-  <script src="/socket.io/socket.io.js"></script>
+  <canvas id="canvas" width="500" height="500"></canvas>
   <script>
     const socket = io();
-    const canvas = document.getElementById("displayCanvas");
+    const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
 
-    function resizeCanvas() {
-      const size = Math.min(window.innerWidth, window.innerHeight);
-      canvas.width = size;
-      canvas.height = size;
-    }
-
-    resizeCanvas();
-    window.addEventListener("resize", resizeCanvas);
-
-    socket.on("draw", (data) => {
-      ctx.fillStyle = data.color || "red";
+    socket.on("draw", data => {
+      ctx.fillStyle = data.color;
       ctx.beginPath();
-      ctx.arc(data.x, data.y, 5, 0, 2 * Math.PI);
+      ctx.arc(data.x, data.y, 4, 0, 2 * Math.PI);
       ctx.fill();
     });
 
