@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Laserpointer Control (Sticky Dynamic Calibration)</title>
+  <title>Laserpointer Control mit Feedback</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
     html, body {
@@ -72,9 +72,10 @@
     let alpha0 = 0, beta0 = 0;
     let x = canvas.width / 2;
     let y = canvas.height / 2;
-
     const scaling = 5;
-    const margin = 2; // Grenzbereich zum Umschalten
+
+    let currentAlpha = null, currentBeta = null;
+    let edgeState = { left: false, right: false, top: false, bottom: false };
 
     document.getElementById("laserButton").addEventListener("touchstart", e => {
       e.preventDefault();
@@ -95,44 +96,43 @@
       color = c;
     }
 
-    let currentAlpha = null, currentBeta = null;
+    socket.on("edgeHit", data => {
+      if (data.side) {
+        edgeState[data.side] = true;
+      }
+    });
 
     window.addEventListener("deviceorientation", e => {
       currentAlpha = e.alpha;
       currentBeta = e.beta;
 
       if (laserActive && calibrated) {
-        const relAlpha = currentAlpha - alpha0;
-        const relBeta = currentBeta - beta0;
+        let relAlpha = currentAlpha - alpha0;
+        let relBeta = currentBeta - beta0;
 
-        let newX = canvas.width / 2 - relAlpha * scaling;
-        let newY = canvas.height / 2 - relBeta * scaling;
+        let proposedX = canvas.width / 2 - relAlpha * scaling;
+        let proposedY = canvas.height / 2 - relBeta * scaling;
 
-        let recalibrated = false;
-
-        if (newX < 0) {
-          x = 0;
+        // Automatische Kalibrierung, wenn vorher edge erreicht war und zurückgekommen
+        if (edgeState.left && proposedX > 0) {
           alpha0 = currentAlpha + canvas.width / 2 / scaling;
-          recalibrated = true;
-        } else if (newX > canvas.width) {
-          x = canvas.width;
+          edgeState.left = false;
+        }
+        if (edgeState.right && proposedX < canvas.width) {
           alpha0 = currentAlpha - canvas.width / 2 / scaling;
-          recalibrated = true;
-        } else {
-          x = newX;
+          edgeState.right = false;
+        }
+        if (edgeState.top && proposedY > 0) {
+          beta0 = currentBeta + canvas.height / 2 / scaling;
+          edgeState.top = false;
+        }
+        if (edgeState.bottom && proposedY < canvas.height) {
+          beta0 = currentBeta - canvas.height / 2 / scaling;
+          edgeState.bottom = false;
         }
 
-        if (newY < 0) {
-          y = 0;
-          beta0 = currentBeta + canvas.height / 2 / scaling;
-          recalibrated = true;
-        } else if (newY > canvas.height) {
-          y = canvas.height;
-          beta0 = currentBeta - canvas.height / 2 / scaling;
-          recalibrated = true;
-        } else {
-          y = newY;
-        }
+        x = Math.max(0, Math.min(canvas.width, proposedX));
+        y = Math.max(0, Math.min(canvas.height, proposedY));
 
         socket.emit("draw", { x, y, color });
       }
