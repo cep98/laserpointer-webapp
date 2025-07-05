@@ -1,0 +1,58 @@
+
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>Gyro Sender</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    body { background: #000; color: #0f0; font-family: monospace; padding: 20px; }
+  </style>
+</head>
+<body>
+  <h1>Gyro-Dump Sender</h1>
+  <p>Live-Daten werden gesendet...</p>
+  <script>
+    const socket = io();
+
+    function requestPermission() {
+      if (typeof DeviceMotionEvent.requestPermission === 'function') {
+        DeviceMotionEvent.requestPermission().then(permissionState => {
+          if (permissionState === 'granted') {
+            startSending();
+          }
+        }).catch(console.error);
+      } else {
+        startSending();
+      }
+    }
+
+    function startSending() {
+      window.addEventListener('devicemotion', event => {
+        const { acceleration, accelerationIncludingGravity, rotationRate, interval } = event;
+        socket.emit('sensorDump', {
+          type: 'motion',
+          acceleration,
+          accelerationIncludingGravity,
+          rotationRate,
+          interval,
+          timestamp: Date.now()
+        });
+      });
+
+      window.addEventListener('deviceorientation', event => {
+        const { alpha, beta, gamma } = event;
+        socket.emit('sensorDump', {
+          type: 'orientation',
+          alpha,
+          beta,
+          gamma,
+          timestamp: Date.now()
+        });
+      });
+    }
+
+    requestPermission();
+  </script>
+</body>
+</html>

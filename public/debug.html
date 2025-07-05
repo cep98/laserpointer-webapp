@@ -1,0 +1,27 @@
+
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>Gyro Debug</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    body { background: #111; color: #0f0; font-family: monospace; padding: 20px; }
+    .log { white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>Sensor-Daten-Viewer</h1>
+  <div class="log" id="log">Warte auf Daten...</div>
+  <script>
+    const socket = io();
+    const logDiv = document.getElementById('log');
+
+    socket.on('sensorDump', data => {
+      const time = new Date(data.timestamp).toLocaleTimeString();
+      const content = `[${time}] ${data.type.toUpperCase()}\n${JSON.stringify(data, null, 2)}\n\n`;
+      logDiv.textContent = content + logDiv.textContent.slice(0, 5000);
+    });
+  </script>
+</body>
+</html>
