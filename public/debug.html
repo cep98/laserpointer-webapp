@@ -1,20 +1,93 @@
 <!DOCTYPE html>
-<html>
+<html lang="de">
 <head>
   <meta charset="UTF-8" />
-  <title>Sensor Debug</title>
+  <title>Sensor Debug mit Balken</title>
   <script src="/socket.io/socket.io.js"></script>
+  <style>
+    body { background: #111; color: #0f0; font-family: monospace; padding: 20px; }
+    .section { margin-bottom: 20px; }
+    .bar-container { display: flex; align-items: center; }
+    .bar-label { width: 150px; }
+    .bar {
+      height: 12px;
+      background-color: #0f0;
+      margin-left: 5px;
+      transition: width 0.1s linear;
+    }
+    pre {
+      background: #222;
+      padding: 10px;
+      border: 1px solid #333;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+  </style>
 </head>
 <body>
-  <h2>Empfangene Gyro-Daten:</h2>
+  <h1>Gyro-Debug mit Balkenanzeige</h1>
+
+  <div class="section" id="bars">
+    <div class="bar-container"><span class="bar-label">acc.x</span><div class="bar" id="acc_x" style="width:0%"></div></div>
+    <div class="bar-container"><span class="bar-label">acc.y</span><div class="bar" id="acc_y" style="width:0%"></div></div>
+    <div class="bar-container"><span class="bar-label">acc.z</span><div class="bar" id="acc_z" style="width:0%"></div></div>
+    <div class="bar-container"><span class="bar-label">rot.alpha</span><div class="bar" id="rot_alpha" style="width:0%"></div></div>
+    <div class="bar-container"><span class="bar-label">rot.beta</span><div class="bar" id="rot_beta" style="width:0%"></div></div>
+    <div class="bar-container"><span class="bar-label">rot.gamma</span><div class="bar" id="rot_gamma" style="width:0%"></div></div>
+    <div class="bar-container"><span class="bar-label">orient.alpha</span><div class="bar" id="ori_alpha" style="width:0%"></div></div>
+    <div class="bar-container"><span class="bar-label">orient.beta</span><div class="bar" id="ori_beta" style="width:0%"></div></div>
+    <div class="bar-container"><span class="bar-label">orient.gamma</span><div class="bar" id="ori_gamma" style="width:0%"></div></div>
+  </div>
+
   <pre id="output">Warte auf Daten…</pre>
 
   <script>
     const socket = io();
     const output = document.getElementById("output");
 
-    socket.on("sensorDump", (data) => {
-      output.textContent = JSON.stringify(data, null, 2);
+    // Speicher für letzte Werte
+    let lastData = {
+      acc: { x: 0, y: 0, z: 0 },
+      rotRate: { alpha: 0, beta: 0, gamma: 0 },
+      orientation: { alpha: 0, beta: 0, gamma: 0 }
+    };
+
+    function setBar(id, value, maxValue = 30) {
+      const percent = Math.min(100, Math.abs(value) / maxValue * 100);
+      const el = document.getElementById(id);
+      if (el) el.style.width = percent + "%";
+    }
+
+    socket.on("sensorDump", data => {
+      // Glätten
+      if (data.acc) {
+        lastData.acc.x = data.acc.x ?? lastData.acc.x;
+        lastData.acc.y = data.acc.y ?? lastData.acc.y;
+        lastData.acc.z = data.acc.z ?? lastData.acc.z;
+      }
+      if (data.rotRate) {
+        lastData.rotRate.alpha = data.rotRate.alpha ?? lastData.rotRate.alpha;
+        lastData.rotRate.beta = data.rotRate.beta ?? lastData.rotRate.beta;
+        lastData.rotRate.gamma = data.rotRate.gamma ?? lastData.rotRate.gamma;
+      }
+      if (data.alpha !== undefined) lastData.orientation.alpha = data.alpha;
+      if (data.beta !== undefined) lastData.orientation.beta = data.beta;
+      if (data.gamma !== undefined) lastData.orientation.gamma = data.gamma;
+
+      // Anzeige aktualisieren
+      const filteredData = JSON.stringify(lastData, null, 2);
+      output.textContent = filteredData;
+
+      // Balken aktualisieren
+      setBar("acc_x", lastData.acc.x);
+      setBar("acc_y", lastData.acc.y);
+      setBar("acc_z", lastData.acc.z);
+      setBar("rot_alpha", lastData.rotRate.alpha, 360);
+      setBar("rot_beta", lastData.rotRate.beta, 360);
+      setBar("rot_gamma", lastData.rotRate.gamma, 360);
+      setBar("ori_alpha", lastData.orientation.alpha, 360);
+      setBar("ori_beta", lastData.orientation.beta, 180);
+      setBar("ori_gamma", lastData.orientation.gamma, 90);
     });
   </script>
 </body>
