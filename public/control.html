@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Laserpointer Control – Edge Locking</title>
+  <title>Laserpointer Control – Dynamische Kalibrierung</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
     html, body {
@@ -60,13 +60,14 @@
     let laserActive = false;
     let calibrated = false;
     let alpha0 = 0, beta0 = 0;
-    const scaling = 5;
+    let alphaMin = 0, alphaMax = 0;
+    let betaMin = 0, betaMax = 0;
 
-    let currentAlpha = null, currentBeta = null;
     let x = canvas.width / 2;
     let y = canvas.height / 2;
 
-    let edgeLock = null;
+    let currentAlpha = null;
+    let currentBeta = null;
 
     document.getElementById("laserButton").addEventListener("touchstart", e => {
       e.preventDefault();
@@ -74,6 +75,10 @@
       if (!calibrated && currentAlpha !== null && currentBeta !== null) {
         alpha0 = currentAlpha;
         beta0 = currentBeta;
+        alphaMin = alpha0;
+        alphaMax = alpha0;
+        betaMin = beta0;
+        betaMax = beta0;
         calibrated = true;
       }
     });
@@ -92,51 +97,20 @@
       currentBeta = e.beta;
 
       if (laserActive && calibrated) {
-        let relAlpha = currentAlpha - alpha0;
-        let relBeta = currentBeta - beta0;
+        // Track Bewegungsspielraum
+        if (currentAlpha < alphaMin) alphaMin = currentAlpha;
+        if (currentAlpha > alphaMax) alphaMax = currentAlpha;
+        if (currentBeta < betaMin) betaMin = currentBeta;
+        if (currentBeta > betaMax) betaMax = currentBeta;
 
-        let rawX = canvas.width / 2 - relAlpha * scaling;
-        let rawY = canvas.height / 2 - relBeta * scaling;
+        const alphaRange = alphaMax - alphaMin || 1;
+        const betaRange = betaMax - betaMin || 1;
 
-        // Check for edge lock activation
-        if (!edgeLock) {
-          if (rawX <= 0) {
-            edgeLock = "left";
-            x = 0;
-          } else if (rawX >= canvas.width) {
-            edgeLock = "right";
-            x = canvas.width;
-          } else if (rawY <= 0) {
-            edgeLock = "top";
-            y = 0;
-          } else if (rawY >= canvas.height) {
-            edgeLock = "bottom";
-            y = canvas.height;
-          } else {
-            x = rawX;
-            y = rawY;
-          }
-        }
+        const xNorm = (currentAlpha - alphaMin) / alphaRange;
+        const yNorm = (currentBeta - betaMin) / betaRange;
 
-        // If locked, wait for return movement to recalibrate
-        if (edgeLock === "left" && rawX > 30) {
-          alpha0 = currentAlpha + canvas.width / 2 / scaling;
-          edgeLock = null;
-        } else if (edgeLock === "right" && rawX < canvas.width - 30) {
-          alpha0 = currentAlpha - canvas.width / 2 / scaling;
-          edgeLock = null;
-        } else if (edgeLock === "top" && rawY > 30) {
-          beta0 = currentBeta + canvas.height / 2 / scaling;
-          edgeLock = null;
-        } else if (edgeLock === "bottom" && rawY < canvas.height - 30) {
-          beta0 = currentBeta - canvas.height / 2 / scaling;
-          edgeLock = null;
-        }
-
-        if (!edgeLock) {
-          x = Math.max(0, Math.min(canvas.width, rawX));
-          y = Math.max(0, Math.min(canvas.height, rawY));
-        }
+        x = Math.max(0, Math.min(canvas.width, xNorm * canvas.width));
+        y = Math.max(0, Math.min(canvas.height, yNorm * canvas.height));
 
         socket.emit("draw", { x, y, color });
       }
