@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Laserpointer Control (Auto-Kalibrierung)</title>
+  <title>Laserpointer Control (Kalibriert, Richtungen korrigiert)</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
     html, body {
@@ -101,15 +101,14 @@
         const relAlpha = currentAlpha - alpha0;
         const relBeta = currentBeta - beta0;
 
-        // Mapping zu Canvas
-        const x = canvas.width / 2 + relAlpha * 5;
-        const y = canvas.height / 2 + relBeta * 5;
+        // Invertiertes Mapping für korrekte Richtung
+        const x = canvas.width / 2 - relAlpha * 5;
+        const y = canvas.height / 2 - relBeta * 5;
 
         socket.emit("draw", { x, y, color });
       }
     });
 
-    // Zeichnen lokaler Punkt (optional)
     socket.on("draw", data => {
       ctx.fillStyle = data.color;
       ctx.beginPath();
