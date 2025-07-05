@@ -23,3 +23,7 @@ io.on("connection", socket => {
 http.listen(process.env.PORT || 3000, () => {
   console.log("Server läuft");
 });
+
+socket.on("sensorDump", data => {
+  io.emit("sensorDump", data); // leitet alles an alle weiter
+});
