@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Laserpointer Control verbessert</title>
+  <title>Laserpointer Control mit Klebekanten</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
     html, body {
@@ -66,6 +66,8 @@
 
     let currentAlpha = null, currentBeta = null;
     let edgeState = { left: false, right: false, top: false, bottom: false };
+    let lastX = canvas.width / 2;
+    let lastY = canvas.height / 2;
 
     document.getElementById("laserButton").addEventListener("touchstart", e => {
       e.preventDefault();
@@ -103,26 +105,34 @@
         let proposedX = canvas.width / 2 - relAlpha * scaling;
         let proposedY = canvas.height / 2 - relBeta * scaling;
 
-        // Kalibrieren, sobald Rand verlassen wird
-        if (edgeState.left && proposedX > 10) {
+        // Begrenzung erzwingen
+        if (proposedX < 0) proposedX = 0;
+        if (proposedX > canvas.width) proposedX = canvas.width;
+        if (proposedY < 0) proposedY = 0;
+        if (proposedY > canvas.height) proposedY = canvas.height;
+
+        // Rekalibrierung NUR wenn vorher edgeState aktiv und jetzt klar zurück
+        if (edgeState.left && proposedX > 30 && lastX <= 5) {
           alpha0 = currentAlpha + canvas.width / 2 / scaling;
           edgeState.left = false;
         }
-        if (edgeState.right && proposedX < canvas.width - 10) {
+        if (edgeState.right && proposedX < canvas.width - 30 && lastX >= canvas.width - 5) {
           alpha0 = currentAlpha - canvas.width / 2 / scaling;
           edgeState.right = false;
         }
-        if (edgeState.top && proposedY > 10) {
+        if (edgeState.top && proposedY > 30 && lastY <= 5) {
           beta0 = currentBeta + canvas.height / 2 / scaling;
           edgeState.top = false;
         }
-        if (edgeState.bottom && proposedY < canvas.height - 10) {
+        if (edgeState.bottom && proposedY < canvas.height - 30 && lastY >= canvas.height - 5) {
           beta0 = currentBeta - canvas.height / 2 / scaling;
           edgeState.bottom = false;
         }
 
-        x = Math.max(0, Math.min(canvas.width, proposedX));
-        y = Math.max(0, Math.min(canvas.height, proposedY));
+        x = proposedX;
+        y = proposedY;
+        lastX = x;
+        lastY = y;
 
         socket.emit("draw", { x, y, color });
       }
