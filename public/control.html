@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Laserpointer Control mit Feedback</title>
+  <title>Laserpointer Control verbessert</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
     html, body {
@@ -12,17 +12,8 @@
       overflow: hidden;
       height: 100%;
     }
-    #canvasContainer {
-      position: relative;
-      width: 100vmin;
-      height: 100vmin;
-      margin: auto;
-      border: 1px solid #444;
-      background: #000;
-    }
     canvas {
-      width: 100%;
-      height: 100%;
+      display: none;
     }
     #controls {
       position: fixed;
@@ -41,19 +32,18 @@
       position: fixed;
       left: 50%;
       transform: translateX(-50%);
-      bottom: 25%;
-      width: 80px;
-      height: 80px;
-      border-radius: 40px;
+      bottom: 20%;
+      width: 120px;
+      height: 120px;
+      border-radius: 60px;
       background: red;
       border: none;
+      z-index: 10;
     }
   </style>
 </head>
 <body>
-  <div id="canvasContainer">
-    <canvas id="canvas" width="500" height="500"></canvas>
-  </div>
+  <canvas id="canvas" width="500" height="500"></canvas>
   <div id="controls">
     <div class="color" style="background:red" onclick="setColor('red')"></div>
     <div class="color" style="background:green" onclick="setColor('green')"></div>
@@ -113,20 +103,20 @@
         let proposedX = canvas.width / 2 - relAlpha * scaling;
         let proposedY = canvas.height / 2 - relBeta * scaling;
 
-        // Automatische Kalibrierung, wenn vorher edge erreicht war und zurückgekommen
-        if (edgeState.left && proposedX > 0) {
+        // Kalibrieren, sobald Rand verlassen wird
+        if (edgeState.left && proposedX > 10) {
           alpha0 = currentAlpha + canvas.width / 2 / scaling;
           edgeState.left = false;
         }
-        if (edgeState.right && proposedX < canvas.width) {
+        if (edgeState.right && proposedX < canvas.width - 10) {
           alpha0 = currentAlpha - canvas.width / 2 / scaling;
           edgeState.right = false;
         }
-        if (edgeState.top && proposedY > 0) {
+        if (edgeState.top && proposedY > 10) {
           beta0 = currentBeta + canvas.height / 2 / scaling;
           edgeState.top = false;
         }
-        if (edgeState.bottom && proposedY < canvas.height) {
+        if (edgeState.bottom && proposedY < canvas.height - 10) {
           beta0 = currentBeta - canvas.height / 2 / scaling;
           edgeState.bottom = false;
         }
