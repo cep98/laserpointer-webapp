@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Laserpointer Control (Dynamisch kalibrierend)</title>
+  <title>Laserpointer Control (Sticky Dynamic Calibration)</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
     html, body {
@@ -70,8 +70,11 @@
     let laserActive = false;
     let calibrated = false;
     let alpha0 = 0, beta0 = 0;
+    let x = canvas.width / 2;
+    let y = canvas.height / 2;
 
-    const limit = 240;  // halbe Canvasgröße - Rand (500/2 - 10)
+    const scaling = 5;
+    const margin = 2; // Grenzbereich zum Umschalten
 
     document.getElementById("laserButton").addEventListener("touchstart", e => {
       e.preventDefault();
@@ -99,27 +102,36 @@
       currentBeta = e.beta;
 
       if (laserActive && calibrated) {
-        let relAlpha = currentAlpha - alpha0;
-        let relBeta = currentBeta - beta0;
+        const relAlpha = currentAlpha - alpha0;
+        const relBeta = currentBeta - beta0;
 
-        let x = canvas.width / 2 - relAlpha * 5;
-        let y = canvas.height / 2 - relBeta * 5;
+        let newX = canvas.width / 2 - relAlpha * scaling;
+        let newY = canvas.height / 2 - relBeta * scaling;
 
-        // Dynamische Nachkalibrierung:
-        if (x < 0) {
-          alpha0 = currentAlpha + canvas.width / 2 / 5;
+        let recalibrated = false;
+
+        if (newX < 0) {
           x = 0;
-        } else if (x > canvas.width) {
-          alpha0 = currentAlpha - canvas.width / 2 / 5;
+          alpha0 = currentAlpha + canvas.width / 2 / scaling;
+          recalibrated = true;
+        } else if (newX > canvas.width) {
           x = canvas.width;
+          alpha0 = currentAlpha - canvas.width / 2 / scaling;
+          recalibrated = true;
+        } else {
+          x = newX;
         }
 
-        if (y < 0) {
-          beta0 = currentBeta + canvas.height / 2 / 5;
+        if (newY < 0) {
           y = 0;
-        } else if (y > canvas.height) {
-          beta0 = currentBeta - canvas.height / 2 / 5;
+          beta0 = currentBeta + canvas.height / 2 / scaling;
+          recalibrated = true;
+        } else if (newY > canvas.height) {
           y = canvas.height;
+          beta0 = currentBeta - canvas.height / 2 / scaling;
+          recalibrated = true;
+        } else {
+          y = newY;
         }
 
         socket.emit("draw", { x, y, color });
