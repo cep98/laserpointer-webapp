@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Laserpointer Control – Final mit Freigabe</title>
+  <title>Laserpointer Control (Direkt Malen bei erster Kalibrierung)</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
     html, body {
@@ -12,7 +12,18 @@
       overflow: hidden;
       height: 100%;
     }
-    canvas { display: none; }
+    #canvasContainer {
+      position: relative;
+      width: 100vmin;
+      height: 100vmin;
+      margin: auto;
+      border: 1px solid #444;
+      background: #000;
+    }
+    canvas {
+      width: 100%;
+      height: 100%;
+    }
     #controls {
       position: fixed;
       top: 10px;
@@ -30,18 +41,19 @@
       position: fixed;
       left: 50%;
       transform: translateX(-50%);
-      bottom: 20%;
-      width: 120px;
-      height: 120px;
-      border-radius: 60px;
+      bottom: 25%;
+      width: 80px;
+      height: 80px;
+      border-radius: 40px;
       background: red;
       border: none;
-      z-index: 10;
     }
   </style>
 </head>
 <body>
-  <canvas id="canvas" width="500" height="500"></canvas>
+  <div id="canvasContainer">
+    <canvas id="canvas" width="500" height="500"></canvas>
+  </div>
   <div id="controls">
     <div class="color" style="background:red" onclick="setColor('red')"></div>
     <div class="color" style="background:green" onclick="setColor('green')"></div>
@@ -58,25 +70,24 @@
     let laserActive = false;
     let calibrated = false;
     let alpha0 = 0, beta0 = 0;
-    const sensitivity = 5;
-    let edgeLock = null;
-
-    let currentAlpha = null, currentBeta = null;
-    let x = canvas.width / 2;
-    let y = canvas.height / 2;
 
     function setColor(c) {
       color = c;
     }
 
+    let currentAlpha = null, currentBeta = null;
+
     document.getElementById("laserButton").addEventListener("touchstart", e => {
       e.preventDefault();
-      laserActive = true;
+
       if (!calibrated && currentAlpha !== null && currentBeta !== null) {
         alpha0 = currentAlpha;
         beta0 = currentBeta;
         calibrated = true;
+        console.log("Kalibriert:", alpha0, beta0);
       }
+
+      laserActive = true;
     });
 
     document.getElementById("laserButton").addEventListener("touchend", e => {
@@ -84,76 +95,20 @@
       laserActive = false;
     });
 
-    function handleOrientation(e) {
+    window.addEventListener("deviceorientation", e => {
       currentAlpha = e.alpha;
       currentBeta = e.beta;
 
       if (laserActive && calibrated) {
-        let deltaX = (currentAlpha - alpha0) * sensitivity;
-        let deltaY = (currentBeta - beta0) * sensitivity;
+        const relAlpha = currentAlpha - alpha0;
+        const relBeta = currentBeta - beta0;
 
-        let rawX = canvas.width / 2 - deltaX;
-        let rawY = canvas.height / 2 - deltaY;
-
-        let edgeHit = null;
-        if (rawX <= 0) {
-          x = 0;
-          edgeHit = "left";
-        } else if (rawX >= canvas.width) {
-          x = canvas.width;
-          edgeHit = "right";
-        } else {
-          x = rawX;
-        }
-
-        if (rawY <= 0) {
-          y = 0;
-          edgeHit = "top";
-        } else if (rawY >= canvas.height) {
-          y = canvas.height;
-          edgeHit = "bottom";
-        } else {
-          y = rawY;
-        }
-
-        if (edgeHit) edgeLock = edgeHit;
-
-        if (edgeLock === "left" && x > 30) {
-          alpha0 = currentAlpha + (canvas.width / 2 - x) / sensitivity;
-          edgeLock = null;
-        }
-        if (edgeLock === "right" && x < canvas.width - 30) {
-          alpha0 = currentAlpha + (canvas.width / 2 - x) / sensitivity;
-          edgeLock = null;
-        }
-        if (edgeLock === "top" && y > 30) {
-          beta0 = currentBeta + (canvas.height / 2 - y) / sensitivity;
-          edgeLock = null;
-        }
-        if (edgeLock === "bottom" && y < canvas.height - 30) {
-          beta0 = currentBeta + (canvas.height / 2 - y) / sensitivity;
-          edgeLock = null;
-        }
+        const x = canvas.width / 2 - relAlpha * 5;
+        const y = canvas.height / 2 - relBeta * 5;
 
         socket.emit("draw", { x, y, color });
       }
-    }
-
-    // Permission für iOS
-    if (typeof DeviceOrientationEvent !== "undefined" &&
-        typeof DeviceOrientationEvent.requestPermission === "function") {
-      DeviceOrientationEvent.requestPermission()
-        .then(permissionState => {
-          if (permissionState === "granted") {
-            window.addEventListener("deviceorientation", handleOrientation);
-          } else {
-            alert("Gyrosensor-Zugriff wurde nicht erlaubt.");
-          }
-        })
-        .catch(console.error);
-    } else {
-      window.addEventListener("deviceorientation", handleOrientation);
-    }
+    });
 
     socket.on("draw", data => {
       ctx.fillStyle = data.color;
