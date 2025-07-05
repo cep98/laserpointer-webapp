@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Laserpointer Control mit Klebekanten</title>
+  <title>Laserpointer Control – Edge Locking</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
     html, body {
@@ -60,14 +60,13 @@
     let laserActive = false;
     let calibrated = false;
     let alpha0 = 0, beta0 = 0;
-    let x = canvas.width / 2;
-    let y = canvas.height / 2;
     const scaling = 5;
 
     let currentAlpha = null, currentBeta = null;
-    let edgeState = { left: false, right: false, top: false, bottom: false };
-    let lastX = canvas.width / 2;
-    let lastY = canvas.height / 2;
+    let x = canvas.width / 2;
+    let y = canvas.height / 2;
+
+    let edgeLock = null;
 
     document.getElementById("laserButton").addEventListener("touchstart", e => {
       e.preventDefault();
@@ -88,12 +87,6 @@
       color = c;
     }
 
-    socket.on("edgeHit", data => {
-      if (data.side) {
-        edgeState[data.side] = true;
-      }
-    });
-
     window.addEventListener("deviceorientation", e => {
       currentAlpha = e.alpha;
       currentBeta = e.beta;
@@ -102,37 +95,48 @@
         let relAlpha = currentAlpha - alpha0;
         let relBeta = currentBeta - beta0;
 
-        let proposedX = canvas.width / 2 - relAlpha * scaling;
-        let proposedY = canvas.height / 2 - relBeta * scaling;
+        let rawX = canvas.width / 2 - relAlpha * scaling;
+        let rawY = canvas.height / 2 - relBeta * scaling;
 
-        // Begrenzung erzwingen
-        if (proposedX < 0) proposedX = 0;
-        if (proposedX > canvas.width) proposedX = canvas.width;
-        if (proposedY < 0) proposedY = 0;
-        if (proposedY > canvas.height) proposedY = canvas.height;
+        // Check for edge lock activation
+        if (!edgeLock) {
+          if (rawX <= 0) {
+            edgeLock = "left";
+            x = 0;
+          } else if (rawX >= canvas.width) {
+            edgeLock = "right";
+            x = canvas.width;
+          } else if (rawY <= 0) {
+            edgeLock = "top";
+            y = 0;
+          } else if (rawY >= canvas.height) {
+            edgeLock = "bottom";
+            y = canvas.height;
+          } else {
+            x = rawX;
+            y = rawY;
+          }
+        }
 
-        // Rekalibrierung NUR wenn vorher edgeState aktiv und jetzt klar zurück
-        if (edgeState.left && proposedX > 30 && lastX <= 5) {
+        // If locked, wait for return movement to recalibrate
+        if (edgeLock === "left" && rawX > 30) {
           alpha0 = currentAlpha + canvas.width / 2 / scaling;
-          edgeState.left = false;
-        }
-        if (edgeState.right && proposedX < canvas.width - 30 && lastX >= canvas.width - 5) {
+          edgeLock = null;
+        } else if (edgeLock === "right" && rawX < canvas.width - 30) {
           alpha0 = currentAlpha - canvas.width / 2 / scaling;
-          edgeState.right = false;
-        }
-        if (edgeState.top && proposedY > 30 && lastY <= 5) {
+          edgeLock = null;
+        } else if (edgeLock === "top" && rawY > 30) {
           beta0 = currentBeta + canvas.height / 2 / scaling;
-          edgeState.top = false;
-        }
-        if (edgeState.bottom && proposedY < canvas.height - 30 && lastY >= canvas.height - 5) {
+          edgeLock = null;
+        } else if (edgeLock === "bottom" && rawY < canvas.height - 30) {
           beta0 = currentBeta - canvas.height / 2 / scaling;
-          edgeState.bottom = false;
+          edgeLock = null;
         }
 
-        x = proposedX;
-        y = proposedY;
-        lastX = x;
-        lastY = y;
+        if (!edgeLock) {
+          x = Math.max(0, Math.min(canvas.width, rawX));
+          y = Math.max(0, Math.min(canvas.height, rawY));
+        }
 
         socket.emit("draw", { x, y, color });
       }
