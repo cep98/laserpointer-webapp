@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Laserpointer Control – Final Calibration</title>
+  <title>Laserpointer Control – Final mit Freigabe</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
     html, body {
@@ -12,9 +12,7 @@
       overflow: hidden;
       height: 100%;
     }
-    canvas {
-      display: none;
-    }
+    canvas { display: none; }
     #controls {
       position: fixed;
       top: 10px;
@@ -67,6 +65,10 @@
     let x = canvas.width / 2;
     let y = canvas.height / 2;
 
+    function setColor(c) {
+      color = c;
+    }
+
     document.getElementById("laserButton").addEventListener("touchstart", e => {
       e.preventDefault();
       laserActive = true;
@@ -82,11 +84,7 @@
       laserActive = false;
     });
 
-    function setColor(c) {
-      color = c;
-    }
-
-    window.addEventListener("deviceorientation", e => {
+    function handleOrientation(e) {
       currentAlpha = e.alpha;
       currentBeta = e.beta;
 
@@ -118,9 +116,7 @@
           y = rawY;
         }
 
-        if (edgeHit) {
-          edgeLock = edgeHit;
-        }
+        if (edgeHit) edgeLock = edgeHit;
 
         if (edgeLock === "left" && x > 30) {
           alpha0 = currentAlpha + (canvas.width / 2 - x) / sensitivity;
@@ -141,7 +137,23 @@
 
         socket.emit("draw", { x, y, color });
       }
-    });
+    }
+
+    // Permission für iOS
+    if (typeof DeviceOrientationEvent !== "undefined" &&
+        typeof DeviceOrientationEvent.requestPermission === "function") {
+      DeviceOrientationEvent.requestPermission()
+        .then(permissionState => {
+          if (permissionState === "granted") {
+            window.addEventListener("deviceorientation", handleOrientation);
+          } else {
+            alert("Gyrosensor-Zugriff wurde nicht erlaubt.");
+          }
+        })
+        .catch(console.error);
+    } else {
+      window.addEventListener("deviceorientation", handleOrientation);
+    }
 
     socket.on("draw", data => {
       ctx.fillStyle = data.color;
