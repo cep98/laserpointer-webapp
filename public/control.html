@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Laserpointer Control – Dynamische Kalibrierung</title>
+  <title>Laserpointer Control – Final Calibration</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
     html, body {
@@ -60,14 +60,12 @@
     let laserActive = false;
     let calibrated = false;
     let alpha0 = 0, beta0 = 0;
-    let alphaMin = 0, alphaMax = 0;
-    let betaMin = 0, betaMax = 0;
+    const sensitivity = 5;
+    let edgeLock = null;
 
+    let currentAlpha = null, currentBeta = null;
     let x = canvas.width / 2;
     let y = canvas.height / 2;
-
-    let currentAlpha = null;
-    let currentBeta = null;
 
     document.getElementById("laserButton").addEventListener("touchstart", e => {
       e.preventDefault();
@@ -75,10 +73,6 @@
       if (!calibrated && currentAlpha !== null && currentBeta !== null) {
         alpha0 = currentAlpha;
         beta0 = currentBeta;
-        alphaMin = alpha0;
-        alphaMax = alpha0;
-        betaMin = beta0;
-        betaMax = beta0;
         calibrated = true;
       }
     });
@@ -97,20 +91,53 @@
       currentBeta = e.beta;
 
       if (laserActive && calibrated) {
-        // Track Bewegungsspielraum
-        if (currentAlpha < alphaMin) alphaMin = currentAlpha;
-        if (currentAlpha > alphaMax) alphaMax = currentAlpha;
-        if (currentBeta < betaMin) betaMin = currentBeta;
-        if (currentBeta > betaMax) betaMax = currentBeta;
+        let deltaX = (currentAlpha - alpha0) * sensitivity;
+        let deltaY = (currentBeta - beta0) * sensitivity;
 
-        const alphaRange = alphaMax - alphaMin || 1;
-        const betaRange = betaMax - betaMin || 1;
+        let rawX = canvas.width / 2 - deltaX;
+        let rawY = canvas.height / 2 - deltaY;
 
-        const xNorm = (currentAlpha - alphaMin) / alphaRange;
-        const yNorm = (currentBeta - betaMin) / betaRange;
+        let edgeHit = null;
+        if (rawX <= 0) {
+          x = 0;
+          edgeHit = "left";
+        } else if (rawX >= canvas.width) {
+          x = canvas.width;
+          edgeHit = "right";
+        } else {
+          x = rawX;
+        }
 
-        x = Math.max(0, Math.min(canvas.width, xNorm * canvas.width));
-        y = Math.max(0, Math.min(canvas.height, yNorm * canvas.height));
+        if (rawY <= 0) {
+          y = 0;
+          edgeHit = "top";
+        } else if (rawY >= canvas.height) {
+          y = canvas.height;
+          edgeHit = "bottom";
+        } else {
+          y = rawY;
+        }
+
+        if (edgeHit) {
+          edgeLock = edgeHit;
+        }
+
+        if (edgeLock === "left" && x > 30) {
+          alpha0 = currentAlpha + (canvas.width / 2 - x) / sensitivity;
+          edgeLock = null;
+        }
+        if (edgeLock === "right" && x < canvas.width - 30) {
+          alpha0 = currentAlpha + (canvas.width / 2 - x) / sensitivity;
+          edgeLock = null;
+        }
+        if (edgeLock === "top" && y > 30) {
+          beta0 = currentBeta + (canvas.height / 2 - y) / sensitivity;
+          edgeLock = null;
+        }
+        if (edgeLock === "bottom" && y < canvas.height - 30) {
+          beta0 = currentBeta + (canvas.height / 2 - y) / sensitivity;
+          edgeLock = null;
+        }
 
         socket.emit("draw", { x, y, color });
       }
