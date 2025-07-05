@@ -1,51 +1,58 @@
+
 <!DOCTYPE html>
-<html>
+<html lang="de">
 <head>
-  <meta charset="UTF-8">
-  <title>Laserpointer Display (mit Randfeedback)</title>
-  <script src="/socket.io/socket.io.js"></script>
+  <meta charset="UTF-8" />
+  <title>Laser Display</title>
   <style>
     html, body {
       margin: 0;
       padding: 0;
-      background: black;
       overflow: hidden;
+      background: black;
+      height: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    #version {
+      position: absolute;
+      top: 8px;
+      right: 12px;
+      font-size: 0.9em;
+      background: #eee;
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-weight: bold;
+      z-index: 10;
+      color: black;
     }
     canvas {
-      display: block;
-      margin: 0 auto;
+      width: 90vmin;
+      height: 90vmin;
       background: black;
+      display: block;
     }
   </style>
 </head>
 <body>
-  <canvas id="canvas" width="500" height="500"></canvas>
-
+  <div id="version">Version: v1.8</div>
+  <canvas id="canvas" width="900" height="900"></canvas>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script>
-    const socket = io();
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
 
-    const EDGE_THRESHOLD = 2;
+    const socket = io();
 
-    socket.on("draw", data => {
+    socket.on("draw", (data) => {
+      const px = data.x * canvas.width;
+      const py = data.y * canvas.height;
+      console.log("received draw", px, py, data.color);
       ctx.fillStyle = data.color;
       ctx.beginPath();
-      ctx.arc(data.x, data.y, 4, 0, 2 * Math.PI);
+      ctx.arc(px, py, 10, 0, Math.PI * 2);
       ctx.fill();
-
-      // Check for edge hits and send feedback
-      if (data.x <= EDGE_THRESHOLD) {
-        socket.emit("edgeHit", { side: "left" });
-      } else if (data.x >= canvas.width - EDGE_THRESHOLD) {
-        socket.emit("edgeHit", { side: "right" });
-      }
-
-      if (data.y <= EDGE_THRESHOLD) {
-        socket.emit("edgeHit", { side: "top" });
-      } else if (data.y >= canvas.height - EDGE_THRESHOLD) {
-        socket.emit("edgeHit", { side: "bottom" });
-      }
     });
 
     socket.on("clear", () => {
