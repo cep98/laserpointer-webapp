@@ -2,34 +2,70 @@
 <html>
 <head>
   <meta charset="UTF-8" />
-  <title>Gyro Dump</title>
+  <title>Gyro Dump mit Erlaubnis</title>
   <script src="/socket.io/socket.io.js"></script>
+  <style>
+    body { background: #000; color: #0f0; font-family: monospace; padding: 20px; }
+    button { font-size: 1.2em; padding: 10px 20px; margin-top: 20px; }
+  </style>
 </head>
 <body>
-  <h2>Gyro Sender (Handy)</h2>
+  <h2>Gyro-Dump Sender (mit Erlaubnis)</h2>
+  <p>Tippe auf den Button, um die Sensorfreigabe zu erteilen und das Senden zu starten.</p>
+  <button onclick="requestGyroPermission()">Start</button>
+
   <script>
     const socket = io();
 
-    if (window.DeviceMotionEvent) {
+    function startGyro() {
       window.addEventListener('devicemotion', (event) => {
         const data = {
           acc: {
-            x: event.acceleration.x,
-            y: event.acceleration.y,
-            z: event.acceleration.z
+            x: event.acceleration?.x,
+            y: event.acceleration?.y,
+            z: event.acceleration?.z
           },
           rotRate: {
             alpha: event.rotationRate?.alpha,
             beta: event.rotationRate?.beta,
             gamma: event.rotationRate?.gamma
           },
-          interval: event.interval
+          interval: event.interval,
+          timestamp: Date.now()
         };
         console.log("Send:", data);
         socket.emit("sensorDump", data);
       });
-    } else {
-      alert("DeviceMotion not supported.");
+
+      window.addEventListener('deviceorientation', (event) => {
+        const data = {
+          alpha: event.alpha,
+          beta: event.beta,
+          gamma: event.gamma,
+          timestamp: Date.now()
+        };
+        socket.emit("sensorDump", data);
+      });
+    }
+
+    function requestGyroPermission() {
+      if (
+        typeof DeviceMotionEvent !== 'undefined' &&
+        typeof DeviceMotionEvent.requestPermission === 'function'
+      ) {
+        DeviceMotionEvent.requestPermission()
+          .then(response => {
+            if (response === 'granted') {
+              startGyro();
+            } else {
+              alert("Sensorzugriff verweigert");
+            }
+          })
+          .catch(console.error);
+      } else {
+        // Android/Desktop
+        startGyro();
+      }
     }
   </script>
 </body>
