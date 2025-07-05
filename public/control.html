@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Laserpointer Control (Direkt Malen bei erster Kalibrierung)</title>
+  <title>Laserpointer Control (Dynamisch kalibrierend)</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
     html, body {
@@ -71,23 +71,16 @@
     let calibrated = false;
     let alpha0 = 0, beta0 = 0;
 
-    function setColor(c) {
-      color = c;
-    }
-
-    let currentAlpha = null, currentBeta = null;
+    const limit = 240;  // halbe Canvasgröße - Rand (500/2 - 10)
 
     document.getElementById("laserButton").addEventListener("touchstart", e => {
       e.preventDefault();
-
+      laserActive = true;
       if (!calibrated && currentAlpha !== null && currentBeta !== null) {
         alpha0 = currentAlpha;
         beta0 = currentBeta;
         calibrated = true;
-        console.log("Kalibriert:", alpha0, beta0);
       }
-
-      laserActive = true;
     });
 
     document.getElementById("laserButton").addEventListener("touchend", e => {
@@ -95,16 +88,39 @@
       laserActive = false;
     });
 
+    function setColor(c) {
+      color = c;
+    }
+
+    let currentAlpha = null, currentBeta = null;
+
     window.addEventListener("deviceorientation", e => {
       currentAlpha = e.alpha;
       currentBeta = e.beta;
 
       if (laserActive && calibrated) {
-        const relAlpha = currentAlpha - alpha0;
-        const relBeta = currentBeta - beta0;
+        let relAlpha = currentAlpha - alpha0;
+        let relBeta = currentBeta - beta0;
 
-        const x = canvas.width / 2 - relAlpha * 5;
-        const y = canvas.height / 2 - relBeta * 5;
+        let x = canvas.width / 2 - relAlpha * 5;
+        let y = canvas.height / 2 - relBeta * 5;
+
+        // Dynamische Nachkalibrierung:
+        if (x < 0) {
+          alpha0 = currentAlpha + canvas.width / 2 / 5;
+          x = 0;
+        } else if (x > canvas.width) {
+          alpha0 = currentAlpha - canvas.width / 2 / 5;
+          x = canvas.width;
+        }
+
+        if (y < 0) {
+          beta0 = currentBeta + canvas.height / 2 / 5;
+          y = 0;
+        } else if (y > canvas.height) {
+          beta0 = currentBeta - canvas.height / 2 / 5;
+          y = canvas.height;
+        }
 
         socket.emit("draw", { x, y, color });
       }
