@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Laserpointer Control (Kalibriert, Richtungen korrigiert)</title>
+  <title>Laserpointer Control (Direkt Malen bei erster Kalibrierung)</title>
   <script src="/socket.io/socket.io.js"></script>
   <style>
     html, body {
@@ -71,27 +71,29 @@
     let calibrated = false;
     let alpha0 = 0, beta0 = 0;
 
+    function setColor(c) {
+      color = c;
+    }
+
+    let currentAlpha = null, currentBeta = null;
+
     document.getElementById("laserButton").addEventListener("touchstart", e => {
       e.preventDefault();
-      laserActive = true;
+
       if (!calibrated && currentAlpha !== null && currentBeta !== null) {
         alpha0 = currentAlpha;
         beta0 = currentBeta;
         calibrated = true;
         console.log("Kalibriert:", alpha0, beta0);
       }
+
+      laserActive = true;
     });
 
     document.getElementById("laserButton").addEventListener("touchend", e => {
       e.preventDefault();
       laserActive = false;
     });
-
-    function setColor(c) {
-      color = c;
-    }
-
-    let currentAlpha = null, currentBeta = null;
 
     window.addEventListener("deviceorientation", e => {
       currentAlpha = e.alpha;
@@ -101,7 +103,6 @@
         const relAlpha = currentAlpha - alpha0;
         const relBeta = currentBeta - beta0;
 
-        // Invertiertes Mapping für korrekte Richtung
         const x = canvas.width / 2 - relAlpha * 5;
         const y = canvas.height / 2 - relBeta * 5;
 
