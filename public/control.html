@@ -2,126 +2,124 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8" />
-  <title>Control</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Control v1.5</title>
   <style>
     body {
       margin: 0;
-      background: #000;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
+      background: #111;
       color: white;
       font-family: sans-serif;
-      height: 100vh;
+      overflow: hidden;
     }
-    #buttons {
+    #ui {
+      position: fixed;
+      top: 10px;
+      left: 10px;
       display: flex;
       flex-wrap: wrap;
-      justify-content: center;
-      margin: 10px 0;
+      gap: 6px;
+      z-index: 10;
     }
     .color-btn {
       width: 30px;
       height: 30px;
-      margin: 5px;
       border: none;
       border-radius: 50%;
+      cursor: pointer;
     }
-    #laserBtn {
-      width: 100px;
-      height: 100px;
+    #laser {
+      position: fixed;
+      bottom: 40%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 80px;
+      height: 80px;
+      background: #555;
       border-radius: 50%;
-      background: white;
-      border: none;
-      margin-top: 20px;
+      border: 3px solid white;
+      z-index: 10;
       touch-action: none;
     }
     #version {
-      position: absolute;
-      top: 5px;
+      position: fixed;
+      top: 10px;
       right: 10px;
       font-size: 12px;
-      color: #888;
+      color: #aaa;
     }
   </style>
 </head>
 <body>
-  <div id="version">v1.4</div>
-  <div id="buttons"></div>
-  <button id="laserBtn"></button>
+  <div id="ui"></div>
+  <div id="laser"></div>
+  <div id="version">v1.5</div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
-    let currentColor = "#ff0000";
+    let maxAlpha = 20;
+    let maxBeta = 20;
     let calibrated = false;
-let maxAlpha = 20;
-let maxBeta = 20;
+    let baseAlpha = 0;
+    let baseBeta = 0;
+    let drawing = false;
+    let color = "#ff0000";
 
-socket.on("admin-settings", data => {
-  if (typeof data.maxAlpha === "number") maxAlpha = data.maxAlpha;
-  if (typeof data.maxBeta === "number") maxBeta = data.maxBeta;
-});
+    socket.on("admin-settings", data => {
+      if (typeof data.maxAlpha === "number") maxAlpha = data.maxAlpha;
+      if (typeof data.maxBeta === "number") maxBeta = data.maxBeta;
+    });
 
-    let centerAlpha = 0;
-    let centerBeta = 0;
-
-    const colors = ["#ff0000", "#00ff00", "#0000ff", "#ffff00", "#00ffff", "#ff00ff", "#ffffff", "#888888", "#ffa500", "#00ff88"];
-    const buttonsContainer = document.getElementById("buttons");
-    colors.forEach(color => {
+    const ui = document.getElementById("ui");
+    const colors = ["#ff0000", "#ff8000", "#ffff00", "#80ff00", "#00ff00", "#00ffff", "#0080ff", "#0000ff", "#8000ff", "#ff00ff"];
+    colors.forEach(c => {
       const btn = document.createElement("button");
       btn.className = "color-btn";
-      btn.style.backgroundColor = color;
-      btn.onclick = () => currentColor = color;
-      buttonsContainer.appendChild(btn);
+      btn.style.background = c;
+      btn.addEventListener("click", () => color = c);
+      ui.appendChild(btn);
     });
 
-    const laserBtn = document.getElementById("laserBtn");
-    let drawing = false;
-
-    laserBtn.addEventListener("touchstart", () => {
+    const laser = document.getElementById("laser");
+    laser.addEventListener("touchstart", e => {
+      e.preventDefault();
+      if (!calibrated) calibrated = true;
       drawing = true;
     });
-
-    laserBtn.addEventListener("touchend", () => {
+    laser.addEventListener("touchend", e => {
+      e.preventDefault();
       drawing = false;
     });
 
-    function requestPermissionIfNeeded() {
-      if (typeof DeviceOrientationEvent !== "undefined" &&
-          typeof DeviceOrientationEvent.requestPermission === "function") {
-        DeviceOrientationEvent.requestPermission().then(response => {
-          if (response === "granted") {
-            window.addEventListener("deviceorientation", handleOrientation);
-          } else {
-            alert("Bewegungsdaten wurden nicht freigegeben.");
-          }
-        }).catch(console.error);
-      } else {
-        window.addEventListener("deviceorientation", handleOrientation);
-      }
+    if (typeof DeviceOrientationEvent !== "undefined" &&
+        typeof DeviceOrientationEvent.requestPermission === "function") {
+      DeviceOrientationEvent.requestPermission().then(response => {
+        if (response === "granted") {
+          window.addEventListener("deviceorientation", handleOrientation);
+        }
+      }).catch(console.error);
+    } else {
+      window.addEventListener("deviceorientation", handleOrientation);
     }
 
-    function handleOrientation(e) {
-      if (!calibrated && drawing) {
-        centerAlpha = e.alpha;
-        centerBeta = e.beta;
-        calibrated = true;
+    function handleOrientation(event) {
+      if (!calibrated) {
+        baseAlpha = event.alpha || 0;
+        baseBeta = event.beta || 0;
+        return;
       }
 
-      if (calibrated && drawing) {
-        const dx = (e.alpha - centerAlpha);
-        const dy = (e.beta - centerBeta);
+      const dx = (event.alpha || 0) - baseAlpha;
+      const dy = (event.beta || 0) - baseBeta;
 
-        const x = Math.max(0, Math.min(1024, 512 - (dy / maxBeta) * 512));
-        const y = Math.max(0, Math.min(1024, 512 - (dx / maxAlpha) * 512));
+      const x = Math.max(0, Math.min(1024, 512 - (dx / maxAlpha) * 512));
+      const y = Math.max(0, Math.min(1024, 512 - (dy / maxBeta) * 512));
 
-        socket.emit("draw", { x, y, color: currentColor });
+      if (drawing) {
+        socket.emit("draw", { x, y, color });
       }
     }
-
-    requestPermissionIfNeeded();
   </script>
 </body>
 </html>
