@@ -1,109 +1,70 @@
-
 <!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8">
-  <title>Display v1.4</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Laserpointer Display</title>
   <style>
-    html, body {
+    body {
       margin: 0;
       background: black;
-      overflow: hidden;
     }
     canvas {
       display: block;
-    }
-    .version {
-      position: absolute;
-      top: 10px;
-      right: 20px;
-      font-family: sans-serif;
-      color: white;
-      font-size: 14px;
-      z-index: 10;
+      margin: auto;
+      background: black;
     }
   </style>
 </head>
 <body>
-  <div class="version">v1.4</div>
   <canvas id="canvas" width="1024" height="1024"></canvas>
+
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
+    let points = [];
 
-    const users = {};
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
 
-    function draw() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      // Zeichne Linien und Punkte für alle User
-      for (const id in users) {
-        const user = users[id];
-
-        // Linie zeichnen, wenn gerade gemalt wird
-        if (user.isDrawing && user.lastX !== null && user.lastY !== null && user.x !== null && user.y !== null) {
-          ctx.strokeStyle = user.color;
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.moveTo(user.lastX, user.lastY);
-          ctx.lineTo(user.x, user.y);
-          ctx.stroke();
-        }
-
-        // Zielpunkt zeichnen
-        const pulse = 3 + Math.sin(Date.now() / 150) * 1.5;
-        ctx.beginPath();
-        ctx.arc(user.x, user.y, pulse, 0, 2 * Math.PI);
-        ctx.fillStyle = user.color;
-        ctx.fill();
+    socket.on("draw", ({ x, y, color, isStart }) => {
+      if (isStart) {
+        points = [];
       }
 
-      requestAnimationFrame(draw);
-    }
+      points.push({ x, y });
 
-    socket.on("draw", data => {
-      if (!users[data.id]) {
-        users[data.id] = {
-          x: data.x,
-          y: data.y,
-          lastX: null,
-          lastY: null,
-          color: data.color,
-          isDrawing: false
-        };
-      }
-
-      const user = users[data.id];
-
-      // Nur Linie zeichnen, wenn aktiv gezeichnet wird
-      if (data.isStart) {
-        user.isDrawing = true;
-        user.lastX = data.x;
-        user.lastY = data.y;
-      } else if (!data.isStart && user.isDrawing) {
-        user.lastX = user.x;
-        user.lastY = user.y;
-      }
-
-      user.x = data.x;
-      user.y = data.y;
-    });
-
-    socket.on("drawend", id => {
-      if (users[id]) {
-        users[id].isDrawing = false;
-        users[id].lastX = null;
-        users[id].lastY = null;
+      if (points.length > 2) {
+        drawBezier(points[points.length - 3], points[points.length - 2], points[points.length - 1], color);
+      } else if (points.length === 2) {
+        drawLine(points[0], points[1], color);
       }
     });
 
     socket.on("clear", () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+      points = [];
     });
 
-    draw();
+    function drawLine(p1, p2, color) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.stroke();
+    }
+
+    function drawBezier(p0, p1, p2, color) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(p0.x, p0.y);
+      ctx.quadraticCurveTo(p1.x, p1.y, p2.x, p2.y);
+      ctx.stroke();
+    }
   </script>
 </body>
 </html>
