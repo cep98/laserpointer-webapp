@@ -3,7 +3,7 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8">
-  <title>Laserpointer v3.1</title>
+  <title>Laserpointer v3.4</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <style>
     body {
@@ -66,7 +66,7 @@
   </style>
 </head>
 <body>
-  <div id="version">v3.1</div>
+  <div id="version">v3.4</div>
   <h2>Laserpointer Steuerung</h2>
   <div id="colorPicker"></div>
   <button id="toggleMode">Touch</button>
@@ -104,6 +104,7 @@
     toggleBtn.onclick = () => {
       mode = (mode === 'touch' ? 'motion' : 'touch');
       toggleBtn.textContent = (mode === 'touch' ? 'Touch' : 'Motion');
+    drawarea.style.display = (mode === 'touch' ? 'block' : 'none');
       laserBtn.style.display = (mode === 'motion' ? 'block' : 'none');
     };
 
