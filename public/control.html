@@ -47,7 +47,7 @@
   </style>
 </head>
 <body>
-  <div id="version">v1.1</div>
+  <div id="version">v1.3</div>
   <div id="buttons"></div>
   <button id="laserBtn"></button>
 
@@ -56,6 +56,14 @@
     const socket = io();
     let currentColor = "#ff0000";
     let calibrated = false;
+let maxAlpha = 20;
+let maxBeta = 20;
+
+socket.on("admin-settings", data => {
+  if (typeof data.maxAlpha === "number") maxAlpha = data.maxAlpha;
+  if (typeof data.maxBeta === "number") maxBeta = data.maxBeta;
+});
+
     let centerAlpha = 0;
     let centerBeta = 0;
 
@@ -106,8 +114,8 @@
         const dx = (e.alpha - centerAlpha);
         const dy = (e.beta - centerBeta);
 
-        const x = Math.max(0, Math.min(800, 400 + dy * 10));
-        const y = Math.max(0, Math.min(800, 400 + dx * 10));
+        const x = Math.max(0, Math.min(1024, 512 + (dx / maxAlpha) * 512));
+        const y = Math.max(0, Math.min(1024, 512 + (dy / maxBeta) * 512));
 
         socket.emit("draw", { x, y, color: currentColor });
       }
