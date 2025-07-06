@@ -1,148 +1,64 @@
-
 <!DOCTYPE html>
-<html lang="de">
+<html>
 <head>
   <meta charset="UTF-8">
-  <title>Laserpointer v3.1</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Control v3.2</title>
+  <script src="/socket.io/socket.io.js"></script>
   <style>
-    body {
-      background: black;
-      color: white;
-      font-family: sans-serif;
-      margin: 0;
-      padding: 0;
-      text-align: center;
-      overflow: hidden;
-    }
-    #colorPicker {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      margin-top: 10px;
-    }
-    .color {
-      width: 30px;
-      height: 30px;
-      border-radius: 50%;
-      border: 2px solid white;
-      margin: 4px;
-    }
-    #toggleMode {
-      margin-top: 10px;
-      padding: 6px 12px;
-      border: none;
-      border-radius: 4px;
-      background: #444;
-      color: white;
-      font-size: 14px;
-    }
-    #laserBtn {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      width: 60px;
-      height: 60px;
-      border-radius: 50%;
-      background: red;
-      border: none;
-    }
-    #drawarea {
-      margin: 10px auto;
-      width: 90vmin;
-      height: 90vmin;
-      border: 2px dashed white;
-      touch-action: none;
-      position: relative;
-    }
-    #version {
-      position: absolute;
-      top: 8px;
-      right: 12px;
-      font-size: 12px;
-      opacity: 0.5;
-    }
+    body { margin: 0; background: #111; color: white; font-family: sans-serif; }
+    #drawarea { position: absolute; top: 100px; left: 50%; transform: translateX(-50%); width: 300px; height: 300px; border: 2px solid white; }
+    #laserBtn { position: absolute; bottom: 20%; left: 50%; transform: translateX(-50%); width: 120px; height: 120px; background: red; border-radius: 60px; display: none; }
+    #controls { position: absolute; top: 10px; left: 10px; display: flex; gap: 10px; }
+    .color { width: 30px; height: 30px; border-radius: 50%; border: 2px solid white; }
+    #toggleBtn { position: absolute; top: 10px; right: 10px; }
+    #version { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); font-size: 14px; }
   </style>
 </head>
 <body>
-  <div id="version">v3.1</div>
-  <h2>Laserpointer Steuerung</h2>
-  <div id="colorPicker"></div>
-  <button id="toggleMode">Touch</button>
-  <button id="laserBtn"></button>
+  <div id="controls">
+    <div class="color" style="background:red" onclick="setColor('red')"></div>
+    <div class="color" style="background:green" onclick="setColor('green')"></div>
+    <div class="color" style="background:blue" onclick="setColor('blue')"></div>
+    <div class="color" style="background:yellow" onclick="setColor('yellow')"></div>
+  </div>
+  <div id="toggleBtn">Touch</div>
+  <div id="version">v3.2</div>
   <div id="drawarea"></div>
+  <button id="laserBtn"></button>
 
-  <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
-    let color = 'red';
-    let mode = 'touch'; // 'touch' or 'motion'
-    let drawing = false;
-    let calib = { xMin: -10, xMax: 10, zMin: -10, zMax: 10 };
-
-    // receive calibration
-    socket.on('calibration', data => {
-      calib = data;
-      console.log('Calibration updated', calib);
-    });
-
-    const colors = ['red','green','blue','yellow','magenta','cyan','white','black','orange','purple','lime','pink','brown','gray','lightblue','gold'];
-    const picker = document.getElementById('colorPicker');
-    colors.forEach(c => {
-      const el = document.createElement('div');
-      el.className = 'color';
-      el.style.background = c;
-      el.onclick = () => color = c;
-      picker.appendChild(el);
-    });
-
-    const toggleBtn = document.getElementById('toggleMode');
-    const laserBtn = document.getElementById('laserBtn');
-    const drawarea = document.getElementById('drawarea');
+    const drawarea = document.getElementById("drawarea");
+    const laserBtn = document.getElementById("laserBtn");
+    const toggleBtn = document.getElementById("toggleBtn");
+    let mode = "touch";
+    let color = "red";
 
     toggleBtn.onclick = () => {
       mode = (mode === 'touch' ? 'motion' : 'touch');
       toggleBtn.textContent = (mode === 'touch' ? 'Touch' : 'Motion');
       laserBtn.style.display = (mode === 'motion' ? 'block' : 'none');
+      drawarea.style.display = (mode === 'touch' ? 'block' : 'none');
     };
 
-    // touch drawing
-    drawarea.addEventListener('touchstart', e => {
-      if (mode !== 'touch') return;
-      e.preventDefault();
-      drawing = true; handleTouch(e.touches[0]);
-    }, {passive:false});
-    drawarea.addEventListener('touchmove', e => {
-      if (mode !== 'touch' || !drawing) return;
-      e.preventDefault();
-      handleTouch(e.touches[0]);
-    }, {passive:false});
-    drawarea.addEventListener('touchend', () => { drawing=false; });
-
-    function handleTouch(t) {
-      const r = drawarea.getBoundingClientRect();
-      const nx = (t.clientX - r.left) / r.width;
-      const ny = (t.clientY - r.top) / r.height;
-      socket.emit('draw',{x:nx,y:ny,color});
+    function setColor(c) {
+      color = c;
     }
 
-    // motion drawing
-    laserBtn.addEventListener('touchstart', () => drawing=true);
-    laserBtn.addEventListener('touchend', () => drawing=false);
+    drawarea.addEventListener("touchmove", e => {
+      if (mode !== 'touch') return;
+      const touch = e.touches[0];
+      const rect = drawarea.getBoundingClientRect();
+      const x = touch.clientX - rect.left;
+      const y = touch.clientY - rect.top;
+      socket.emit("draw", { x: x * 2, y: y * 2, color });
+    });
 
-    window.addEventListener('devicemotion', ev => {
-      if (mode!=='motion' || !drawing) return;
-      const acc = ev.acceleration; 
-      if (!acc) return;
-      const x = acc.x || 0;
-      const z = acc.z || 0;
-      // map x to horizontal
-      let nx = (x - calib.xMin)/(calib.xMax - calib.xMin);
-      let nz = (z - calib.zMin)/(calib.zMax - calib.zMin);
-      nx = Math.max(0,Math.min(1,nx));
-      nz = Math.max(0,Math.min(1,nz));
-      socket.emit('draw',{x:nx,y:nz,color});
+    laserBtn.addEventListener("touchstart", e => {
+      e.preventDefault();
+    });
+    laserBtn.addEventListener("touchend", e => {
+      e.preventDefault();
     });
   </script>
 </body>
