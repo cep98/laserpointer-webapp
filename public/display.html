@@ -1,84 +1,70 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="de">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Laserpointer Display v1.2</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Laserpointer Display</title>
   <style>
-    body { margin: 0; background: black; }
-    canvas { display: block; margin: auto; background: black; }
-    .version {
-      position: absolute;
-      top: 10px;
-      right: 20px;
-      color: white;
-      font-family: sans-serif;
-      font-size: 14px;
+    body {
+      margin: 0;
+      background: black;
+    }
+    canvas {
+      display: block;
+      margin: auto;
+      background: black;
     }
   </style>
 </head>
 <body>
   <canvas id="canvas" width="1024" height="1024"></canvas>
-  <div class="version">v1.2</div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
+    let points = [];
 
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
 
-    let lastPoint = null;
-    let isDrawing = false;
-    let currentPath = [];
+    socket.on("draw", ({ x, y, color, isStart }) => {
+      if (isStart) {
+        points = [];
+      }
 
-    let color = "red"; // Oder dynamisch per control
-    let draw = false;
+      points.push({ x, y });
 
-    // Empfange Zeichen-Daten vom Handy
-    socket.on("draw", (data) => {
-      const { x, y, isPressed, color: remoteColor } = data;
-      color = remoteColor;
-
-      if (isPressed) {
-        if (!draw) {
-          // Zeichnen beginnt – aber kein Linienanschluss!
-          lastPoint = { x, y };
-          draw = true;
-          currentPath = [lastPoint];
-          return;
-        }
-
-        currentPath.push({ x, y });
-
-        if (currentPath.length >= 3) {
-          const len = currentPath.length;
-          const p0 = currentPath[len - 3];
-          const p1 = currentPath[len - 2];
-          const p2 = currentPath[len - 1];
-
-          ctx.strokeStyle = color;
-          ctx.lineWidth = 4;
-
-          ctx.beginPath();
-          ctx.moveTo(p0.x, p0.y);
-          ctx.quadraticCurveTo(p1.x, p1.y, (p1.x + p2.x) / 2, (p1.y + p2.y) / 2);
-          ctx.stroke();
-        }
-
-        lastPoint = { x, y };
-      } else {
-        draw = false;
-        currentPath = [];
-        lastPoint = null;
+      if (points.length > 2) {
+        drawBezier(points[points.length - 3], points[points.length - 2], points[points.length - 1], color);
+      } else if (points.length === 2) {
+        drawLine(points[0], points[1], color);
       }
     });
 
     socket.on("clear", () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+      points = [];
     });
+
+    function drawLine(p1, p2, color) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.stroke();
+    }
+
+    function drawBezier(p0, p1, p2, color) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(p0.x, p0.y);
+      ctx.quadraticCurveTo(p1.x, p1.y, p2.x, p2.y);
+      ctx.stroke();
+    }
   </script>
 </body>
 </html>
