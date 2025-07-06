@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Laserpointer Control v3.2</title>
+  <title>Laserpointer Control v3.3</title>
   <style>
     body {
       margin: 0;
@@ -55,7 +55,7 @@
 <body>
   <div id="colorPicker"></div>
   <button id="laserBtn"></button>
-  <div class="version">v3.2</div>
+  <div class="version">v3.3</div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
@@ -123,8 +123,9 @@
       const normX = Math.max(-maxAngle, Math.min(maxAngle, relX));
       const normY = Math.max(-maxAngle, Math.min(maxAngle, relY));
 
-      const canvasX = (normX + maxAngle) / (2 * maxAngle) * 1024;
-      const canvasY = (normY + maxAngle) / (2 * maxAngle) * 1024;
+      // ACHSEN UMGEKEHRT
+      const canvasX = (-normX + maxAngle) / (2 * maxAngle) * 1024;
+      const canvasY = (-normY + maxAngle) / (2 * maxAngle) * 1024;
 
       handleDraw(canvasX, canvasY);
     });
