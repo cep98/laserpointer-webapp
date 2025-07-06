@@ -3,24 +3,15 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Laser Display 1.2</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Display v1.3</title>
   <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      background: black;
-      overflow: hidden;
-    }
-    #canvas {
-      display: block;
-      margin: 0 auto;
-      background: black;
-    }
+    body { margin: 0; background: black; overflow: hidden; }
+    canvas { display: block; margin: auto; background: black; }
     #version {
-      position: absolute;
-      top: 10px;
-      right: 10px;
+      position: fixed;
+      top: 5px;
+      left: 5px;
       color: white;
       font-family: sans-serif;
       font-size: 14px;
@@ -28,49 +19,70 @@
   </style>
 </head>
 <body>
-  <div id="version">v1.2</div>
-  <canvas id="canvas" width="1024" height="1024"></canvas>
+<div id="version">v1.3</div>
+<canvas id="canvas" width="1024" height="1024"></canvas>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const socket = io();
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+ctx.lineWidth = 3;
+ctx.lineCap = "round";
 
-  <script src="/socket.io/socket.io.js"></script>
-  <script>
-    const socket = io();
-    const canvas = document.getElementById("canvas");
-    const ctx = canvas.getContext("2d");
+let drawing = false;
+let color = "red";
+let paths = []; // Stores separate drawing paths
+let currentPath = [];
 
-    let lastPoint = null;
-    let isDrawing = false;
+socket.on("draw", ({ x, y, color: c, isDrawing }) => {
+  if (!isDrawing) {
+    if (currentPath.length > 1) {
+      paths.push({ points: currentPath, color });
+    }
+    currentPath = [];
+    return;
+  }
 
-    socket.on("draw", (data) => {
-      const { x, y, color, start } = data;
-      ctx.fillStyle = color;
+  currentPath.push({ x, y });
+  drawCanvas(); // Redraw everything
+});
 
-      if (start || !lastPoint) {
-        // Neue Linie beginnen oder keine vorherigen Punkte
-        lastPoint = { x, y };
-        ctx.beginPath();
-        ctx.arc(x, y, 5, 0, Math.PI * 2);
-        ctx.fill();
-        return;
-      }
+socket.on("clear", () => {
+  paths = [];
+  currentPath = [];
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+});
 
-      // Quadratische Bezier-Kurve von lastPoint zu neuem Punkt
-      const midX = (lastPoint.x + x) / 2;
-      const midY = (lastPoint.y + y) / 2;
+function drawCanvas() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      ctx.beginPath();
-      ctx.moveTo(lastPoint.x, lastPoint.y);
-      ctx.quadraticCurveTo(lastPoint.x, lastPoint.y, midX, midY);
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 5;
-      ctx.stroke();
+  // Draw all stored paths
+  for (const path of paths) {
+    drawBezierPath(path.points, path.color);
+  }
 
-      lastPoint = { x, y };
-    });
+  // Draw current path
+  if (currentPath.length > 1) {
+    drawBezierPath(currentPath, color);
+  }
+}
 
-    socket.on("clear", () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      lastPoint = null;
-    });
-  </script>
+function drawBezierPath(points, strokeColor) {
+  ctx.strokeStyle = strokeColor;
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+
+  for (let i = 1; i < points.length - 2; i++) {
+    const xc = (points[i].x + points[i + 1].x) / 2;
+    const yc = (points[i].y + points[i + 1].y) / 2;
+    ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
+  }
+
+  // Last segment
+  const last = points.length - 1;
+  ctx.lineTo(points[last].x, points[last].y);
+  ctx.stroke();
+}
+</script>
 </body>
 </html>
