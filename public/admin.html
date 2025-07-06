@@ -1,122 +1,64 @@
-
 <!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8" />
-  <title>Laserpointer Adminpanel</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta charset="UTF-8">
+  <title>Admin</title>
   <style>
     body {
       background: #111;
-      color: #fff;
+      color: white;
       font-family: sans-serif;
-      padding: 2rem;
-      max-width: 600px;
-      margin: auto;
+      padding: 20px;
     }
-    h1 {
-      text-align: center;
-      margin-bottom: 2rem;
-    }
-    .slider-block {
-      margin-bottom: 1.5rem;
-    }
-    label {
+    label, input {
       display: block;
-      margin-bottom: 0.5rem;
+      margin: 10px 0;
     }
-    input[type="range"] {
-      width: 100%;
-    }
-    input[type="number"] {
+    input {
+      padding: 5px;
       width: 60px;
-      margin-left: 10px;
     }
     button {
-      margin-top: 2rem;
-      padding: 1rem 2rem;
-      font-size: 1rem;
+      padding: 10px 20px;
+      margin-top: 20px;
       background: red;
       color: white;
       border: none;
-      border-radius: 8px;
       cursor: pointer;
     }
   </style>
 </head>
 <body>
-  <h1>Laserpointer Admin</h1>
+  <h1>Admin-Panel</h1>
 
-  <div class="slider-block">
-    <label for="xMin">Links-Anschlag (X min)</label>
-    <input id="xMin" type="range" min="-20" max="0" value="-10" step="0.1">
-    <input id="xMinVal" type="number" value="-10" step="0.1">
-  </div>
+  <label for="horiz">Max. Winkel horizontal (°):</label>
+  <input type="number" id="horiz" value="20" />
 
-  <div class="slider-block">
-    <label for="xMax">Rechts-Anschlag (X max)</label>
-    <input id="xMax" type="range" min="0" max="20" value="10" step="0.1">
-    <input id="xMaxVal" type="number" value="10" step="0.1">
-  </div>
+  <label for="vert">Max. Winkel vertikal (°):</label>
+  <input type="number" id="vert" value="20" />
 
-  <div class="slider-block">
-    <label for="zMin">Vorne-Anschlag (Z min)</label>
-    <input id="zMin" type="range" min="-20" max="0" value="-10" step="0.1">
-    <input id="zMinVal" type="number" value="-10" step="0.1">
-  </div>
-
-  <div class="slider-block">
-    <label for="zMax">Hinten-Anschlag (Z max)</label>
-    <input id="zMax" type="range" min="0" max="20" value="10" step="0.1">
-    <input id="zMaxVal" type="number" value="10" step="0.1">
-  </div>
-
-  <button id="clearBtn">🧹 Alles löschen</button>
+  <button id="clear">Canvas löschen</button>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
 
-    const sliders = [
-      ["xMin", "xMinVal", "xMin"],
-      ["xMax", "xMaxVal", "xMax"],
-      ["zMin", "zMinVal", "zMin"],
-      ["zMax", "zMaxVal", "zMax"]
-    ];
-
-    const settings = {
-      xMin: -10,
-      xMax: 10,
-      zMin: -10,
-      zMax: 10
-    };
-
-    function emitCalibration() {
-      socket.emit("calibration", settings);
-    }
-
-    sliders.forEach(([sliderId, inputId, key]) => {
-      const slider = document.getElementById(sliderId);
-      const input = document.getElementById(inputId);
-
-      slider.addEventListener("input", () => {
-        settings[key] = parseFloat(slider.value);
-        input.value = slider.value;
-        emitCalibration();
-      });
-
-      input.addEventListener("input", () => {
-        settings[key] = parseFloat(input.value);
-        slider.value = input.value;
-        emitCalibration();
-      });
-    });
-
-    document.getElementById("clearBtn").addEventListener("click", () => {
+    document.getElementById("clear").addEventListener("click", () => {
       socket.emit("clear");
     });
 
-    emitCalibration();
+    // Beim Ändern der Winkel Werte an alle Controls senden
+    function updateValues() {
+      const horiz = parseFloat(document.getElementById("horiz").value);
+      const vert = parseFloat(document.getElementById("vert").value);
+      socket.emit("admin-settings", { maxAlpha: horiz, maxBeta: vert });
+    }
+
+    document.getElementById("horiz").addEventListener("change", updateValues);
+    document.getElementById("vert").addEventListener("change", updateValues);
+
+    // Einmal initial senden
+    updateValues();
   </script>
 </body>
 </html>
