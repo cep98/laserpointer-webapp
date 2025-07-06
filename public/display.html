@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Laserpointer Display</title>
+  <title>Laserpointer Display v3.0</title>
   <style>
     body {
       margin: 0;
@@ -14,9 +14,18 @@
       margin: auto;
       background: black;
     }
+    .version {
+      position: absolute;
+      top: 10px;
+      left: 20px;
+      color: white;
+      font-family: sans-serif;
+      font-size: 14px;
+    }
   </style>
 </head>
 <body>
+  <div class="version">v3.0</div>
   <canvas id="canvas" width="1024" height="1024"></canvas>
 
   <script src="/socket.io/socket.io.js"></script>
@@ -25,6 +34,10 @@
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
     let points = [];
+    let lastX = null;
+    let lastY = null;
+    let pulseSize = 4;
+    let pulseDirection = 1;
 
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
@@ -35,6 +48,8 @@
       }
 
       points.push({ x, y });
+      lastX = x;
+      lastY = y;
 
       if (points.length > 2) {
         drawBezier(points[points.length - 3], points[points.length - 2], points[points.length - 1], color);
@@ -46,6 +61,8 @@
     socket.on("clear", () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       points = [];
+      lastX = null;
+      lastY = null;
     });
 
     function drawLine(p1, p2, color) {
@@ -65,6 +82,34 @@
       ctx.quadraticCurveTo(p1.x, p1.y, p2.x, p2.y);
       ctx.stroke();
     }
+
+    function drawPulseDot() {
+      if (lastX !== null && lastY !== null) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.fillStyle = "white";
+        ctx.arc(lastX, lastY, pulseSize, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      pulseSize += pulseDirection * 0.1;
+      if (pulseSize > 5 || pulseSize < 3) {
+        pulseDirection *= -1;
+      }
+    }
+
+    function animate() {
+      // Nur den Punktbereich „drübermalen“
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (let i = 2; i < points.length; i++) {
+        drawBezier(points[i - 2], points[i - 1], points[i], ctx.strokeStyle);
+      }
+      drawPulseDot();
+      requestAnimationFrame(animate);
+    }
+
+    animate();
   </script>
 </body>
 </html>
