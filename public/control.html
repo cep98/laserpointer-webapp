@@ -47,7 +47,7 @@
   </style>
 </head>
 <body>
-  <div id="version">v1.0</div>
+  <div id="version">v1.1</div>
   <div id="buttons"></div>
   <button id="laserBtn"></button>
 
@@ -106,8 +106,8 @@
         const dx = (e.alpha - centerAlpha);
         const dy = (e.beta - centerBeta);
 
-        const x = Math.max(0, Math.min(800, 400 + dx * 10));
-        const y = Math.max(0, Math.min(800, 400 + dy * 10));
+        const x = Math.max(0, Math.min(800, 400 + dy * 10));
+        const y = Math.max(0, Math.min(800, 400 + dx * 10));
 
         socket.emit("draw", { x, y, color: currentColor });
       }
