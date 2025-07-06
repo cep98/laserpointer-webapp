@@ -2,138 +2,147 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8">
-  <title>Control v3.7</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Laserpointer Control v3.3</title>
   <style>
     body {
       margin: 0;
+      background: #111;
+      color: white;
+      font-family: sans-serif;
       overflow: hidden;
-      background: black;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
     }
-    #colorButtons {
+
+    #colorPicker {
+      position: absolute;
+      top: 10px;
+      left: 10px;
       display: flex;
+      gap: 10px;
       flex-wrap: wrap;
-      justify-content: center;
-      margin-top: 20px;
+      max-width: 80vw;
     }
-    .color {
+
+    .colorBtn {
       width: 30px;
       height: 30px;
-      margin: 5px;
       border-radius: 50%;
-      border: 2px solid white;
+      border: none;
     }
-    #laser {
+
+    #laserBtn {
+      position: absolute;
+      bottom: 60px;
+      left: 50%;
+      transform: translateX(-50%);
       width: 80px;
       height: 80px;
-      border-radius: 50%;
       background: white;
-      margin-top: 50px;
+      border-radius: 50%;
+      border: none;
       touch-action: none;
     }
+
     .version {
       position: absolute;
       top: 10px;
       right: 20px;
-      color: white;
-      font-family: sans-serif;
       font-size: 14px;
     }
   </style>
 </head>
 <body>
-  <div class="version">v3.7</div>
-  <div id="colorButtons"></div>
-  <div id="laser"></div>
+  <div id="colorPicker"></div>
+  <button id="laserBtn"></button>
+  <div class="version">v3.3</div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
-    const colors = ["red", "orange", "yellow", "green", "blue", "cyan", "magenta", "white", "gray", "lime"];
-    let currentColor = colors[0];
-    let isDrawing = false;
-    let calibrated = false;
-    let midAlpha = 0;
-    let midBeta = 0;
+    let isPressed = false;
+    let justStarted = false;
+    let color = 'red';
 
-    const canvasSize = 1024;
-    let maxAngleH = 20;
-    let maxAngleV = 20;
+    // Farben setzen
+    const colors = ['red', 'orange', 'yellow', 'green', 'blue', 'cyan', 'magenta', 'pink', 'white', 'gray'];
+    const colorPicker = document.getElementById("colorPicker");
 
-    const colorButtons = document.getElementById("colorButtons");
-    colors.forEach(color => {
-      const btn = document.createElement("div");
-      btn.className = "color";
-      btn.style.backgroundColor = color;
-      btn.addEventListener("click", () => currentColor = color);
-      colorButtons.appendChild(btn);
-    });
-
-    const laser = document.getElementById("laser");
-
-    function requestPermissionIfNeeded() {
-      if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
-        DeviceOrientationEvent.requestPermission().then(response => {
-          if (response === "granted") {
-            window.addEventListener("deviceorientation", handleOrientation);
-          }
-        }).catch(console.error);
-      } else {
-        window.addEventListener("deviceorientation", handleOrientation);
-      }
-    }
-
-    function handleOrientation(event) {
-      if (!event.alpha || !event.beta) return;
-      const alpha = event.alpha;
-      const beta = event.beta;
-
-      if (!calibrated) return;
-
-      let dx = alpha - midAlpha;
-      let dy = beta - midBeta;
-
-      if (dx > 180) dx -= 360;
-      if (dx < -180) dx += 360;
-
-      const x = Math.max(0, Math.min(canvasSize, canvasSize / 2 + (dx / maxAngleH) * (canvasSize / 2)));
-      const y = Math.max(0, Math.min(canvasSize, canvasSize / 2 + (dy / maxAngleV) * (canvasSize / 2)));
-
-      socket.emit("draw", {
-        x, y,
-        color: currentColor,
-        id: socket.id,
-        isStart: isDrawing
+    colors.forEach(c => {
+      const btn = document.createElement("button");
+      btn.className = "colorBtn";
+      btn.style.backgroundColor = c;
+      btn.addEventListener("click", () => {
+        color = c;
       });
+      colorPicker.appendChild(btn);
+    });
+
+    const laserBtn = document.getElementById("laserBtn");
+
+    function handleDraw(x, y) {
+      socket.emit("draw", {
+        x,
+        y,
+        color,
+        isStart: justStarted
+      });
+      justStarted = false;
     }
 
-    laser.addEventListener("touchstart", e => {
+    laserBtn.addEventListener("touchstart", e => {
       e.preventDefault();
-      if (!calibrated) {
-        calibrated = true;
-        return;
+      isPressed = true;
+      justStarted = true;
+    });
+
+    laserBtn.addEventListener("touchend", e => {
+      e.preventDefault();
+      isPressed = false;
+    });
+
+    // Bewegung
+    let zeroAlpha = null;
+    let zeroBeta = null;
+    const maxAngle = 20;
+
+    window.addEventListener("deviceorientation", (event) => {
+      if (!isPressed) return;
+      if (zeroAlpha === null) {
+        zeroAlpha = event.alpha;
+        zeroBeta = event.beta;
       }
-      isDrawing = true;
+
+      let relX = event.alpha - zeroAlpha;
+      let relY = event.beta - zeroBeta;
+
+      // Winkel normalisieren
+      if (relX > 180) relX -= 360;
+      if (relX < -180) relX += 360;
+
+      const normX = Math.max(-maxAngle, Math.min(maxAngle, relX));
+      const normY = Math.max(-maxAngle, Math.min(maxAngle, relY));
+
+      // ACHSEN UMGEKEHRT
+      const canvasX = (-normX + maxAngle) / (2 * maxAngle) * 1024;
+      const canvasY = (-normY + maxAngle) / (2 * maxAngle) * 1024;
+
+      handleDraw(canvasX, canvasY);
     });
 
-    laser.addEventListener("touchend", e => {
-      e.preventDefault();
-      isDrawing = false;
-      socket.emit("drawend", socket.id);
+    // iOS-Permission
+    window.addEventListener("click", async () => {
+      if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
+        try {
+          const response = await DeviceOrientationEvent.requestPermission();
+          if (response === "granted") {
+            console.log("Gyro freigegeben");
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      }
     });
-
-    socket.on("updateAngles", data => {
-      if (data.maxH !== undefined) maxAngleH = data.maxH;
-      if (data.maxV !== undefined) maxAngleV = data.maxV;
-      console.log("Neue Winkelgrenzen:", maxAngleH, maxAngleV);
-    });
-
-    requestPermissionIfNeeded();
   </script>
 </body>
 </html>
