@@ -3,58 +3,59 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8">
-  <title>Admin</title>
+  <title>Admin Panel</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     body {
+      font-family: sans-serif;
       background: #111;
       color: white;
-      font-family: sans-serif;
-      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px;
     }
-    label, input {
-      display: block;
-      margin: 10px 0;
+    label {
+      margin-top: 20px;
     }
     input {
-      padding: 5px;
+      font-size: 16px;
+      margin-left: 10px;
       width: 60px;
     }
     button {
+      margin-top: 30px;
       padding: 10px 20px;
-      margin-top: 20px;
-      background: red;
-      color: white;
-      border: none;
-      cursor: pointer;
+      font-size: 16px;
     }
   </style>
 </head>
 <body>
-  <h1>Admin-Panel</h1>
-
-  <label for="horiz">Max. Winkel horizontal (°):</label>
-  <input type="number" id="horiz" value="20" />
-
-  <label for="vert">Max. Winkel vertikal (°):</label>
-  <input type="number" id="vert" value="20" />
-
-  <button id="apply">Werte übernehmen</button>
-  <br><br>
-  <button id="clear">Canvas löschen</button>
+  <h2>Admin Panel</h2>
+  <label>
+    Max Winkel horizontal:
+    <input id="maxHorizontal" type="number" value="20">
+  </label>
+  <label>
+    Max Winkel vertikal:
+    <input id="maxVertical" type="number" value="20">
+  </label>
+  <button onclick="sendSettings()">Senden</button>
+  <button onclick="clearCanvas()">Canvas löschen</button>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
 
-    document.getElementById("clear").addEventListener("click", () => {
-      socket.emit("clear");
-    });
+    function sendSettings() {
+      const h = parseFloat(document.getElementById("maxHorizontal").value);
+      const v = parseFloat(document.getElementById("maxVertical").value);
+      socket.emit("updateAngles", { maxH: h, maxV: v });
+    }
 
-    document.getElementById("apply").addEventListener("click", () => {
-      const horiz = parseFloat(document.getElementById("horiz").value);
-      const vert = parseFloat(document.getElementById("vert").value);
-      socket.emit("admin-settings", { maxAlpha: horiz, maxBeta: vert });
-    });
+    function clearCanvas() {
+      socket.emit("clear");
+    }
   </script>
 </body>
 </html>
