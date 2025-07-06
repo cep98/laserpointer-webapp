@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="de">
 <head>
@@ -37,6 +38,8 @@
   <label for="vert">Max. Winkel vertikal (°):</label>
   <input type="number" id="vert" value="20" />
 
+  <button id="apply">Werte übernehmen</button>
+  <br><br>
   <button id="clear">Canvas löschen</button>
 
   <script src="/socket.io/socket.io.js"></script>
@@ -47,18 +50,11 @@
       socket.emit("clear");
     });
 
-    // Beim Ändern der Winkel Werte an alle Controls senden
-    function updateValues() {
+    document.getElementById("apply").addEventListener("click", () => {
       const horiz = parseFloat(document.getElementById("horiz").value);
       const vert = parseFloat(document.getElementById("vert").value);
       socket.emit("admin-settings", { maxAlpha: horiz, maxBeta: vert });
-    }
-
-    document.getElementById("horiz").addEventListener("change", updateValues);
-    document.getElementById("vert").addEventListener("change", updateValues);
-
-    // Einmal initial senden
-    updateValues();
+    });
   </script>
 </body>
 </html>
