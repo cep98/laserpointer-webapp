@@ -3,21 +3,32 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Laserpointer Display</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Laser Display 1.2</title>
   <style>
-    body {
+    html, body {
       margin: 0;
+      padding: 0;
+      background: black;
+      overflow: hidden;
+    }
+    #canvas {
+      display: block;
+      margin: 0 auto;
       background: black;
     }
-    canvas {
-      display: block;
-      margin: auto;
-      background: black;
+    #version {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      color: white;
+      font-family: sans-serif;
+      font-size: 14px;
     }
   </style>
 </head>
 <body>
+  <div id="version">v1.2</div>
   <canvas id="canvas" width="1024" height="1024"></canvas>
 
   <script src="/socket.io/socket.io.js"></script>
@@ -25,43 +36,41 @@
     const socket = io();
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
-    let points = [];
 
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
+    let lastPoint = null;
+    let isDrawing = false;
 
-    socket.on("draw", ({ x, y, color }) => {
-      points.push({ x, y });
+    socket.on("draw", (data) => {
+      const { x, y, color, start } = data;
+      ctx.fillStyle = color;
 
-      if (points.length > 2) {
-        drawBezier(points[points.length - 3], points[points.length - 2], points[points.length - 1], color);
-      } else if (points.length === 2) {
-        drawLine(points[0], points[1], color);
+      if (start || !lastPoint) {
+        // Neue Linie beginnen oder keine vorherigen Punkte
+        lastPoint = { x, y };
+        ctx.beginPath();
+        ctx.arc(x, y, 5, 0, Math.PI * 2);
+        ctx.fill();
+        return;
       }
+
+      // Quadratische Bezier-Kurve von lastPoint zu neuem Punkt
+      const midX = (lastPoint.x + x) / 2;
+      const midY = (lastPoint.y + y) / 2;
+
+      ctx.beginPath();
+      ctx.moveTo(lastPoint.x, lastPoint.y);
+      ctx.quadraticCurveTo(lastPoint.x, lastPoint.y, midX, midY);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 5;
+      ctx.stroke();
+
+      lastPoint = { x, y };
     });
 
     socket.on("clear", () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      points = [];
+      lastPoint = null;
     });
-
-    function drawLine(p1, p2, color) {
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 6;
-      ctx.beginPath();
-      ctx.moveTo(p1.x, p1.y);
-      ctx.lineTo(p2.x, p2.y);
-      ctx.stroke();
-    }
-
-    function drawBezier(p0, p1, p2, color) {
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 6;
-      ctx.beginPath();
-      ctx.moveTo(p0.x, p0.y);
-      ctx.quadraticCurveTo(p1.x, p1.y, p2.x, p2.y);
-      ctx.stroke();
-    }
   </script>
 </body>
 </html>
