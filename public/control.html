@@ -1,151 +1,147 @@
+
 <!DOCTYPE html>
 <html lang="de">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Laserpointer Control v1.2</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Laserpointer Control v3.2</title>
   <style>
     body {
       margin: 0;
-      background: black;
+      background: #111;
       color: white;
       font-family: sans-serif;
       overflow: hidden;
     }
 
-    #version {
+    #colorPicker {
       position: absolute;
       top: 10px;
-      right: 10px;
-      font-size: 12px;
-      color: white;
-    }
-
-    #colors {
-      position: absolute;
-      top: 20px;
-      left: 50%;
-      transform: translateX(-50%);
+      left: 10px;
       display: flex;
-      gap: 8px;
+      gap: 10px;
       flex-wrap: wrap;
-      justify-content: center;
+      max-width: 80vw;
     }
 
-    .color-btn {
-      width: 28px;
-      height: 28px;
+    .colorBtn {
+      width: 30px;
+      height: 30px;
       border-radius: 50%;
       border: none;
     }
 
-    #laser {
+    #laserBtn {
       position: absolute;
-      bottom: 30px;
+      bottom: 60px;
       left: 50%;
       transform: translateX(-50%);
-      width: 90px;
-      height: 90px;
-      border-radius: 50%;
+      width: 80px;
+      height: 80px;
       background: white;
-      opacity: 0.6;
+      border-radius: 50%;
       border: none;
+      touch-action: none;
     }
 
-    #laser:active {
-      opacity: 1;
+    .version {
+      position: absolute;
+      top: 10px;
+      right: 20px;
+      font-size: 14px;
     }
   </style>
 </head>
 <body>
-  <div id="version">v1.2</div>
-  <div id="colors"></div>
-  <button id="laser"></button>
+  <div id="colorPicker"></div>
+  <button id="laserBtn"></button>
+  <div class="version">v3.2</div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
-    const laser = document.getElementById("laser");
-    const colors = document.getElementById("colors");
+    let isPressed = false;
+    let justStarted = false;
+    let color = 'red';
 
-    let drawing = false;
-    let currentColor = "red";
-    let centerAlpha = null;
-    let centerBeta = null;
-    let maxAngle = 30;
+    // Farben setzen
+    const colors = ['red', 'orange', 'yellow', 'green', 'blue', 'cyan', 'magenta', 'pink', 'white', 'gray'];
+    const colorPicker = document.getElementById("colorPicker");
 
-    // Farbauswahl erzeugen
-    const colorList = ["red", "orange", "yellow", "green", "cyan", "blue", "purple", "magenta", "white", "gray"];
-    colorList.forEach(c => {
+    colors.forEach(c => {
       const btn = document.createElement("button");
-      btn.className = "color-btn";
-      btn.style.background = c;
-      btn.onclick = () => currentColor = c;
-      colors.appendChild(btn);
+      btn.className = "colorBtn";
+      btn.style.backgroundColor = c;
+      btn.addEventListener("click", () => {
+        color = c;
+      });
+      colorPicker.appendChild(btn);
     });
 
-    // Laser-Button gedrückt
-    laser.addEventListener("touchstart", e => {
+    const laserBtn = document.getElementById("laserBtn");
+
+    function handleDraw(x, y) {
+      socket.emit("draw", {
+        x,
+        y,
+        color,
+        isStart: justStarted
+      });
+      justStarted = false;
+    }
+
+    laserBtn.addEventListener("touchstart", e => {
       e.preventDefault();
-      if (!drawing) {
-        drawing = true;
-        if (centerAlpha === null || centerBeta === null) {
-          centerAlpha = lastAlpha;
-          centerBeta = lastBeta;
+      isPressed = true;
+      justStarted = true;
+    });
+
+    laserBtn.addEventListener("touchend", e => {
+      e.preventDefault();
+      isPressed = false;
+    });
+
+    // Bewegung
+    let zeroAlpha = null;
+    let zeroBeta = null;
+    const maxAngle = 20;
+
+    window.addEventListener("deviceorientation", (event) => {
+      if (!isPressed) return;
+      if (zeroAlpha === null) {
+        zeroAlpha = event.alpha;
+        zeroBeta = event.beta;
+      }
+
+      let relX = event.alpha - zeroAlpha;
+      let relY = event.beta - zeroBeta;
+
+      // Winkel normalisieren
+      if (relX > 180) relX -= 360;
+      if (relX < -180) relX += 360;
+
+      const normX = Math.max(-maxAngle, Math.min(maxAngle, relX));
+      const normY = Math.max(-maxAngle, Math.min(maxAngle, relY));
+
+      const canvasX = (normX + maxAngle) / (2 * maxAngle) * 1024;
+      const canvasY = (normY + maxAngle) / (2 * maxAngle) * 1024;
+
+      handleDraw(canvasX, canvasY);
+    });
+
+    // iOS-Permission
+    window.addEventListener("click", async () => {
+      if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
+        try {
+          const response = await DeviceOrientationEvent.requestPermission();
+          if (response === "granted") {
+            console.log("Gyro freigegeben");
+          }
+        } catch (err) {
+          console.error(err);
         }
       }
     });
-
-    // Laser-Button losgelassen
-    laser.addEventListener("touchend", e => {
-      e.preventDefault();
-      drawing = false;
-      socket.emit("drawEnd");
-    });
-
-    let lastAlpha = 0;
-    let lastBeta = 0;
-
-    // iOS-Gyro-Zugriff
-    if (typeof DeviceOrientationEvent !== 'undefined' &&
-        typeof DeviceOrientationEvent.requestPermission === 'function') {
-      DeviceOrientationEvent.requestPermission().then(response => {
-        if (response === 'granted') {
-          window.addEventListener("deviceorientation", handleOrientation);
-        }
-      }).catch(console.error);
-    } else {
-      window.addEventListener("deviceorientation", handleOrientation);
-    }
-
-    function handleOrientation(event) {
-      lastAlpha = event.alpha;
-      lastBeta = event.beta;
-
-      if (drawing && centerAlpha !== null && centerBeta !== null) {
-        const dx = normalizeAngle(event.alpha - centerAlpha);
-        const dy = event.beta - centerBeta;
-
-        const x = 512 + (dx / maxAngle) * 512;
-        const y = 512 + (dy / maxAngle) * 512;
-
-        socket.emit("draw", {
-          x: clamp(x, 0, 1023),
-          y: clamp(y, 0, 1023),
-          color: currentColor
-        });
-      }
-    }
-
-    function normalizeAngle(angle) {
-      if (angle > 180) return angle - 360;
-      if (angle < -180) return angle + 360;
-      return angle;
-    }
-
-    function clamp(v, min, max) {
-      return Math.max(min, Math.min(max, v));
-    }
   </script>
 </body>
 </html>
