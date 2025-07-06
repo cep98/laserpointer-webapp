@@ -4,179 +4,145 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Laserpointer Control v3.4</title>
+  <title>Control v3.5</title>
   <style>
-    body {
+    html, body {
       margin: 0;
-      background: #111;
+      background: black;
       color: white;
       font-family: sans-serif;
       overflow: hidden;
     }
-
-    #colorPicker {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      max-width: 80vw;
-    }
-
-    .colorBtn {
-      width: 30px;
-      height: 30px;
-      border-radius: 50%;
-      border: none;
-    }
-
-    #laserBtn {
-      position: absolute;
-      bottom: 60px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 80px;
-      height: 80px;
-      background: white;
-      border-radius: 50%;
-      border: none;
-      touch-action: none;
-    }
-
     .version {
       position: absolute;
       top: 10px;
       right: 20px;
       font-size: 14px;
     }
-
-    #pointer {
+    .colors {
       position: absolute;
-      width: 12px;
-      height: 12px;
-      margin: -6px 0 0 -6px;
-      background-color: red;
-      border-radius: 50%;
-      pointer-events: none;
-      animation: pulse 1.2s infinite ease-in-out;
+      top: 10px;
+      left: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      width: 180px;
+      gap: 5px;
     }
-
-    @keyframes pulse {
-      0%, 100% {
-        transform: scale(1);
-        opacity: 0.7;
-      }
-      50% {
-        transform: scale(1.5);
-        opacity: 1;
-      }
+    .color {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 2px solid white;
+    }
+    .color.selected {
+      box-shadow: 0 0 5px 2px white;
+    }
+    .laser-btn {
+      position: absolute;
+      bottom: 50%;
+      left: 50%;
+      width: 80px;
+      height: 80px;
+      margin-left: -40px;
+      margin-bottom: -40px;
+      background: #fff;
+      border-radius: 50%;
+      opacity: 0.4;
+      touch-action: none;
     }
   </style>
 </head>
 <body>
-  <div id="colorPicker"></div>
-  <button id="laserBtn"></button>
-  <div id="pointer"></div>
-  <div class="version">v3.4</div>
+  <div class="version">v3.5</div>
+  <div class="colors" id="colorPalette"></div>
+  <div class="laser-btn" id="laserButton"></div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
-    let isPressed = false;
-    let justStarted = false;
-    let color = 'red';
+    const maxAngle = 20;
+    let drawing = false;
+    let color = "#00FF00";
+    let isFirst = true;
 
-    // Farben setzen
-    const colors = ['red', 'orange', 'yellow', 'green', 'blue', 'cyan', 'magenta', 'pink', 'white', 'gray'];
-    const colorPicker = document.getElementById("colorPicker");
-
-    colors.forEach(c => {
-      const btn = document.createElement("button");
-      btn.className = "colorBtn";
-      btn.style.backgroundColor = c;
-      btn.addEventListener("click", () => {
+    const colorList = ["#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF", "#00FFFF", "#FFFFFF", "#FFA500", "#00AA00", "#9900CC"];
+    const palette = document.getElementById("colorPalette");
+    colorList.forEach(c => {
+      const el = document.createElement("div");
+      el.className = "color";
+      el.style.backgroundColor = c;
+      if (c === color) el.classList.add("selected");
+      el.onclick = () => {
         color = c;
-        pointer.style.backgroundColor = c;
-      });
-      colorPicker.appendChild(btn);
+        document.querySelectorAll(".color").forEach(e => e.classList.remove("selected"));
+        el.classList.add("selected");
+      };
+      palette.appendChild(el);
     });
 
-    const laserBtn = document.getElementById("laserBtn");
-    const pointer = document.getElementById("pointer");
+    const btn = document.getElementById("laserButton");
 
-    function handleDraw(x, y) {
+    let lastX = 0;
+    let lastY = 0;
+
+    btn.addEventListener("touchstart", e => {
+      drawing = true;
+      isFirst = true;
+      e.preventDefault();
+    });
+    btn.addEventListener("touchend", e => {
+      drawing = false;
+      e.preventDefault();
+    });
+
+    function handleOrientation(e) {
+      if (e.alpha === null) return;
+
+      let x = (e.alpha > 180 ? e.alpha - 360 : e.alpha);
+      let y = e.beta;
+
+      // Umkehren für korrekte Richtung
+      x = -x;
+      y = -y;
+
+      x = Math.max(-maxAngle, Math.min(maxAngle, x));
+      y = Math.max(-maxAngle, Math.min(maxAngle, y));
+
+      const canvasX = ((x + maxAngle) / (2 * maxAngle)) * 1024;
+      const canvasY = ((y + maxAngle) / (2 * maxAngle)) * 1024;
+
+      lastX = canvasX;
+      lastY = canvasY;
+
       socket.emit("draw", {
-        x,
-        y,
-        color,
-        isStart: justStarted
+        id: socket.id,
+        x: canvasX,
+        y: canvasY,
+        color: color,
+        isStart: isFirst && drawing
       });
-      justStarted = false;
+
+      if (isFirst && drawing) isFirst = false;
     }
 
-    laserBtn.addEventListener("touchstart", e => {
-      e.preventDefault();
-      isPressed = true;
-      justStarted = true;
-    });
-
-    laserBtn.addEventListener("touchend", e => {
-      e.preventDefault();
-      isPressed = false;
-    });
-
-    // Bewegung
-    let zeroAlpha = null;
-    let zeroBeta = null;
-    const maxAngle = 20;
-    let lastCanvasX = 512;
-    let lastCanvasY = 512;
-
-    window.addEventListener("deviceorientation", (event) => {
-      if (zeroAlpha === null) {
-        zeroAlpha = event.alpha;
-        zeroBeta = event.beta;
+    function requestPermissionIfNeeded() {
+      if (
+        typeof DeviceOrientationEvent !== "undefined" &&
+        typeof DeviceOrientationEvent.requestPermission === "function"
+      ) {
+        DeviceOrientationEvent.requestPermission()
+          .then(permissionState => {
+            if (permissionState === "granted") {
+              window.addEventListener("deviceorientation", handleOrientation);
+            }
+          })
+          .catch(console.error);
+      } else {
+        window.addEventListener("deviceorientation", handleOrientation);
       }
+    }
 
-      let relX = event.alpha - zeroAlpha;
-      let relY = event.beta - zeroBeta;
-
-      // Winkel normalisieren
-      if (relX > 180) relX -= 360;
-      if (relX < -180) relX += 360;
-
-      const normX = Math.max(-maxAngle, Math.min(maxAngle, relX));
-      const normY = Math.max(-maxAngle, Math.min(maxAngle, relY));
-
-      const canvasX = (-normX + maxAngle) / (2 * maxAngle) * 1024;
-      const canvasY = (-normY + maxAngle) / (2 * maxAngle) * 1024;
-
-      lastCanvasX = canvasX;
-      lastCanvasY = canvasY;
-
-      // Setze Position des Zielpunkts
-      pointer.style.left = `${(canvasX / 1024) * window.innerWidth}px`;
-      pointer.style.top = `${(canvasY / 1024) * window.innerHeight}px`;
-
-      if (isPressed) {
-        handleDraw(canvasX, canvasY);
-      }
-    });
-
-    // iOS-Permission
-    window.addEventListener("click", async () => {
-      if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
-        try {
-          const response = await DeviceOrientationEvent.requestPermission();
-          if (response === "granted") {
-            console.log("Gyro freigegeben");
-          }
-        } catch (err) {
-          console.error(err);
-        }
-      }
-    });
+    window.addEventListener("load", requestPermissionIfNeeded);
   </script>
 </body>
 </html>
