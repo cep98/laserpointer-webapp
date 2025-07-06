@@ -1,125 +1,119 @@
 <!DOCTYPE html>
-<html>
+<html lang="de">
 <head>
-  <meta charset="UTF-8">
-  <title>Laserpointer Control (Direkt Malen bei erster Kalibrierung)</title>
-  <script src="/socket.io/socket.io.js"></script>
+  <meta charset="UTF-8" />
+  <title>Control</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
-    html, body {
+    body {
       margin: 0;
-      padding: 0;
-      background: #111;
-      overflow: hidden;
-      height: 100%;
-    }
-    #canvasContainer {
-      position: relative;
-      width: 100vmin;
-      height: 100vmin;
-      margin: auto;
-      border: 1px solid #444;
       background: #000;
-    }
-    canvas {
-      width: 100%;
-      height: 100%;
-    }
-    #controls {
-      position: fixed;
-      top: 10px;
-      left: 10px;
       display: flex;
-      gap: 10px;
+      flex-direction: column;
+      align-items: center;
+      color: white;
+      font-family: sans-serif;
+      height: 100vh;
     }
-    .color {
+    #buttons {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin: 10px 0;
+    }
+    .color-btn {
       width: 30px;
       height: 30px;
-      border-radius: 50%;
-      border: 2px solid white;
-    }
-    #laserButton {
-      position: fixed;
-      left: 50%;
-      transform: translateX(-50%);
-      bottom: 25%;
-      width: 80px;
-      height: 80px;
-      border-radius: 40px;
-      background: red;
+      margin: 5px;
       border: none;
+      border-radius: 50%;
+    }
+    #laserBtn {
+      width: 100px;
+      height: 100px;
+      border-radius: 50%;
+      background: white;
+      border: none;
+      margin-top: 20px;
+      touch-action: none;
+    }
+    #version {
+      position: absolute;
+      top: 5px;
+      right: 10px;
+      font-size: 12px;
+      color: #888;
     }
   </style>
 </head>
 <body>
-  <div id="canvasContainer">
-    <canvas id="canvas" width="500" height="500"></canvas>
-  </div>
-  <div id="controls">
-    <div class="color" style="background:red" onclick="setColor('red')"></div>
-    <div class="color" style="background:green" onclick="setColor('green')"></div>
-    <div class="color" style="background:blue" onclick="setColor('blue')"></div>
-    <div class="color" style="background:yellow" onclick="setColor('yellow')"></div>
-  </div>
-  <button id="laserButton"></button>
+  <div id="version">v1.0</div>
+  <div id="buttons"></div>
+  <button id="laserBtn"></button>
 
+  <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
-    const canvas = document.getElementById("canvas");
-    const ctx = canvas.getContext("2d");
-    let color = "red";
-    let laserActive = false;
+    let currentColor = "#ff0000";
     let calibrated = false;
-    let alpha0 = 0, beta0 = 0;
+    let centerAlpha = 0;
+    let centerBeta = 0;
 
-    function setColor(c) {
-      color = c;
+    const colors = ["#ff0000", "#00ff00", "#0000ff", "#ffff00", "#00ffff", "#ff00ff", "#ffffff", "#888888", "#ffa500", "#00ff88"];
+    const buttonsContainer = document.getElementById("buttons");
+    colors.forEach(color => {
+      const btn = document.createElement("button");
+      btn.className = "color-btn";
+      btn.style.backgroundColor = color;
+      btn.onclick = () => currentColor = color;
+      buttonsContainer.appendChild(btn);
+    });
+
+    const laserBtn = document.getElementById("laserBtn");
+    let drawing = false;
+
+    laserBtn.addEventListener("touchstart", () => {
+      drawing = true;
+    });
+
+    laserBtn.addEventListener("touchend", () => {
+      drawing = false;
+    });
+
+    function requestPermissionIfNeeded() {
+      if (typeof DeviceOrientationEvent !== "undefined" &&
+          typeof DeviceOrientationEvent.requestPermission === "function") {
+        DeviceOrientationEvent.requestPermission().then(response => {
+          if (response === "granted") {
+            window.addEventListener("deviceorientation", handleOrientation);
+          } else {
+            alert("Bewegungsdaten wurden nicht freigegeben.");
+          }
+        }).catch(console.error);
+      } else {
+        window.addEventListener("deviceorientation", handleOrientation);
+      }
     }
 
-    let currentAlpha = null, currentBeta = null;
-
-    document.getElementById("laserButton").addEventListener("touchstart", e => {
-      e.preventDefault();
-
-      if (!calibrated && currentAlpha !== null && currentBeta !== null) {
-        alpha0 = currentAlpha;
-        beta0 = currentBeta;
+    function handleOrientation(e) {
+      if (!calibrated && drawing) {
+        centerAlpha = e.alpha;
+        centerBeta = e.beta;
         calibrated = true;
-        console.log("Kalibriert:", alpha0, beta0);
       }
 
-      laserActive = true;
-    });
+      if (calibrated && drawing) {
+        const dx = (e.alpha - centerAlpha);
+        const dy = (e.beta - centerBeta);
 
-    document.getElementById("laserButton").addEventListener("touchend", e => {
-      e.preventDefault();
-      laserActive = false;
-    });
+        const x = Math.max(0, Math.min(800, 400 + dx * 10));
+        const y = Math.max(0, Math.min(800, 400 + dy * 10));
 
-    window.addEventListener("deviceorientation", e => {
-      currentAlpha = e.alpha;
-      currentBeta = e.beta;
-
-      if (laserActive && calibrated) {
-        const relAlpha = currentAlpha - alpha0;
-        const relBeta = currentBeta - beta0;
-
-        const x = canvas.width / 2 - relAlpha * 5;
-        const y = canvas.height / 2 - relBeta * 5;
-
-        socket.emit("draw", { x, y, color });
+        socket.emit("draw", { x, y, color: currentColor });
       }
-    });
+    }
 
-    socket.on("draw", data => {
-      ctx.fillStyle = data.color;
-      ctx.beginPath();
-      ctx.arc(data.x, data.y, 4, 0, 2 * Math.PI);
-      ctx.fill();
-    });
-
-    socket.on("clear", () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-    });
+    requestPermissionIfNeeded();
   </script>
 </body>
 </html>
