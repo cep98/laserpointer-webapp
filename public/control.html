@@ -47,7 +47,7 @@
   </style>
 </head>
 <body>
-  <div id="version">v1.3</div>
+  <div id="version">v1.4</div>
   <div id="buttons"></div>
   <button id="laserBtn"></button>
 
@@ -114,8 +114,8 @@ socket.on("admin-settings", data => {
         const dx = (e.alpha - centerAlpha);
         const dy = (e.beta - centerBeta);
 
-        const x = Math.max(0, Math.min(1024, 512 + (dx / maxAlpha) * 512));
-        const y = Math.max(0, Math.min(1024, 512 + (dy / maxBeta) * 512));
+        const x = Math.max(0, Math.min(1024, 512 - (dy / maxBeta) * 512));
+        const y = Math.max(0, Math.min(1024, 512 - (dx / maxAlpha) * 512));
 
         socket.emit("draw", { x, y, color: currentColor });
       }
