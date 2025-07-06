@@ -3,7 +3,7 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8">
-  <title>Control v3.6</title>
+  <title>Control v3.7</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <style>
     body {
@@ -47,7 +47,7 @@
   </style>
 </head>
 <body>
-  <div class="version">v3.6</div>
+  <div class="version">v3.7</div>
   <div id="colorButtons"></div>
   <div id="laser"></div>
 
@@ -62,7 +62,8 @@
     let midBeta = 0;
 
     const canvasSize = 1024;
-    const maxAngle = 20;
+    let maxAngleH = 20;
+    let maxAngleV = 20;
 
     const colorButtons = document.getElementById("colorButtons");
     colors.forEach(color => {
@@ -100,8 +101,8 @@
       if (dx > 180) dx -= 360;
       if (dx < -180) dx += 360;
 
-      const x = Math.max(0, Math.min(canvasSize, canvasSize / 2 + (dx / maxAngle) * (canvasSize / 2)));
-      const y = Math.max(0, Math.min(canvasSize, canvasSize / 2 + (dy / maxAngle) * (canvasSize / 2)));
+      const x = Math.max(0, Math.min(canvasSize, canvasSize / 2 + (dx / maxAngleH) * (canvasSize / 2)));
+      const y = Math.max(0, Math.min(canvasSize, canvasSize / 2 + (dy / maxAngleV) * (canvasSize / 2)));
 
       socket.emit("draw", {
         x, y,
@@ -124,6 +125,12 @@
       e.preventDefault();
       isDrawing = false;
       socket.emit("drawend", socket.id);
+    });
+
+    socket.on("updateAngles", data => {
+      if (data.maxH !== undefined) maxAngleH = data.maxH;
+      if (data.maxV !== undefined) maxAngleV = data.maxV;
+      console.log("Neue Winkelgrenzen:", maxAngleH, maxAngleV);
     });
 
     requestPermissionIfNeeded();
