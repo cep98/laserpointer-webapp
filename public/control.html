@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <title>Control v1.5</title>
+  <title>Control v1.6</title>
   <style>
     body {
       margin: 0;
@@ -53,7 +53,7 @@
 <body>
   <div id="ui"></div>
   <div id="laser"></div>
-  <div id="version">v1.5</div>
+  <div id="version">v1.6</div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
@@ -103,6 +103,14 @@
       window.addEventListener("deviceorientation", handleOrientation);
     }
 
+    
+    function getDeltaAngle(current, base) {
+      let delta = current - base;
+      if (delta > 180) delta -= 360;
+      if (delta < -180) delta += 360;
+      return delta;
+    }
+
     function handleOrientation(event) {
       if (!calibrated) {
         baseAlpha = event.alpha || 0;
@@ -110,7 +118,7 @@
         return;
       }
 
-      const dx = (event.alpha || 0) - baseAlpha;
+      const dx = getDeltaAngle((event.alpha || 0), baseAlpha);
       const dy = (event.beta || 0) - baseBeta;
 
       const x = Math.max(0, Math.min(1024, 512 - (dx / maxAlpha) * 512));
