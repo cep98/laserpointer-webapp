@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Laserpointer Control v3.3</title>
+  <title>Laserpointer Control v3.4</title>
   <style>
     body {
       margin: 0;
@@ -50,12 +50,35 @@
       right: 20px;
       font-size: 14px;
     }
+
+    #pointer {
+      position: absolute;
+      width: 12px;
+      height: 12px;
+      margin: -6px 0 0 -6px;
+      background-color: red;
+      border-radius: 50%;
+      pointer-events: none;
+      animation: pulse 1.2s infinite ease-in-out;
+    }
+
+    @keyframes pulse {
+      0%, 100% {
+        transform: scale(1);
+        opacity: 0.7;
+      }
+      50% {
+        transform: scale(1.5);
+        opacity: 1;
+      }
+    }
   </style>
 </head>
 <body>
   <div id="colorPicker"></div>
   <button id="laserBtn"></button>
-  <div class="version">v3.3</div>
+  <div id="pointer"></div>
+  <div class="version">v3.4</div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
@@ -74,11 +97,13 @@
       btn.style.backgroundColor = c;
       btn.addEventListener("click", () => {
         color = c;
+        pointer.style.backgroundColor = c;
       });
       colorPicker.appendChild(btn);
     });
 
     const laserBtn = document.getElementById("laserBtn");
+    const pointer = document.getElementById("pointer");
 
     function handleDraw(x, y) {
       socket.emit("draw", {
@@ -105,9 +130,10 @@
     let zeroAlpha = null;
     let zeroBeta = null;
     const maxAngle = 20;
+    let lastCanvasX = 512;
+    let lastCanvasY = 512;
 
     window.addEventListener("deviceorientation", (event) => {
-      if (!isPressed) return;
       if (zeroAlpha === null) {
         zeroAlpha = event.alpha;
         zeroBeta = event.beta;
@@ -123,11 +149,19 @@
       const normX = Math.max(-maxAngle, Math.min(maxAngle, relX));
       const normY = Math.max(-maxAngle, Math.min(maxAngle, relY));
 
-      // ACHSEN UMGEKEHRT
       const canvasX = (-normX + maxAngle) / (2 * maxAngle) * 1024;
       const canvasY = (-normY + maxAngle) / (2 * maxAngle) * 1024;
 
-      handleDraw(canvasX, canvasY);
+      lastCanvasX = canvasX;
+      lastCanvasY = canvasY;
+
+      // Setze Position des Zielpunkts
+      pointer.style.left = `${(canvasX / 1024) * window.innerWidth}px`;
+      pointer.style.top = `${(canvasY / 1024) * window.innerHeight}px`;
+
+      if (isPressed) {
+        handleDraw(canvasX, canvasY);
+      }
     });
 
     // iOS-Permission
