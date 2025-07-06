@@ -1,9 +1,10 @@
+
 <!DOCTYPE html>
 <html lang="de">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Laserpointer Display v3.0</title>
+  <title>Laserpointer Display v3.1</title>
   <style>
     body {
       margin: 0;
@@ -25,7 +26,7 @@
   </style>
 </head>
 <body>
-  <div class="version">v3.0</div>
+  <div class="version">v3.1</div>
   <canvas id="canvas" width="1024" height="1024"></canvas>
 
   <script src="/socket.io/socket.io.js"></script>
@@ -38,23 +39,26 @@
     let lastY = null;
     let pulseSize = 4;
     let pulseDirection = 1;
+    let currentColor = "#ffffff";
 
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
 
     socket.on("draw", ({ x, y, color, isStart }) => {
-      if (isStart) {
-        points = [];
-      }
-
-      points.push({ x, y });
       lastX = x;
       lastY = y;
+      currentColor = color;
 
-      if (points.length > 2) {
-        drawBezier(points[points.length - 3], points[points.length - 2], points[points.length - 1], color);
-      } else if (points.length === 2) {
-        drawLine(points[0], points[1], color);
+      if (isStart) {
+        points.push({ x, y }); // Startpunkt nicht mehr resetten
+      } else {
+        points.push({ x, y });
+
+        if (points.length > 2) {
+          drawBezier(points[points.length - 3], points[points.length - 2], points[points.length - 1], color);
+        } else if (points.length === 2) {
+          drawLine(points[0], points[1], color);
+        }
       }
     });
 
@@ -87,7 +91,7 @@
       if (lastX !== null && lastY !== null) {
         ctx.save();
         ctx.beginPath();
-        ctx.fillStyle = "white";
+        ctx.fillStyle = currentColor;
         ctx.arc(lastX, lastY, pulseSize, 0, 2 * Math.PI);
         ctx.fill();
         ctx.restore();
@@ -100,7 +104,6 @@
     }
 
     function animate() {
-      // Nur den Punktbereich „drübermalen“
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       for (let i = 2; i < points.length; i++) {
         drawBezier(points[i - 2], points[i - 1], points[i], ctx.strokeStyle);
