@@ -2,123 +2,108 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Laser Display v1.3</title>
+  <meta charset="UTF-8">
+  <title>Display v1.4</title>
   <style>
     html, body {
       margin: 0;
-      overflow: hidden;
       background: black;
+      overflow: hidden;
     }
     canvas {
       display: block;
-      margin: auto;
-      background: black;
     }
     .version {
       position: absolute;
       top: 10px;
       right: 20px;
-      color: white;
       font-family: sans-serif;
+      color: white;
       font-size: 14px;
-    }
-    .pointer {
-      position: absolute;
-      width: 12px;
-      height: 12px;
-      margin: -6px 0 0 -6px;
-      background-color: lime;
-      border-radius: 50%;
-      pointer-events: none;
-      animation: pulse 1.2s infinite ease-in-out;
-    }
-
-    @keyframes pulse {
-      0%, 100% {
-        transform: scale(1);
-        opacity: 0.7;
-      }
-      50% {
-        transform: scale(1.5);
-        opacity: 1;
-      }
+      z-index: 10;
     }
   </style>
 </head>
 <body>
+  <div class="version">v1.4</div>
   <canvas id="canvas" width="1024" height="1024"></canvas>
-  <div class="version">v1.3</div>
-  <div id="pointers"></div>
-
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
-    const pointers = document.getElementById("pointers");
 
-    let clients = {};
+    const users = {};
 
-    function updatePointer(id, x, y) {
-      let pointer = document.getElementById("ptr_" + id);
-      if (!pointer) {
-        pointer = document.createElement("div");
-        pointer.className = "pointer";
-        pointer.id = "ptr_" + id;
-        pointers.appendChild(pointer);
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Zeichne Linien und Punkte für alle User
+      for (const id in users) {
+        const user = users[id];
+
+        // Linie zeichnen, wenn gerade gemalt wird
+        if (user.isDrawing && user.lastX !== null && user.lastY !== null && user.x !== null && user.y !== null) {
+          ctx.strokeStyle = user.color;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(user.lastX, user.lastY);
+          ctx.lineTo(user.x, user.y);
+          ctx.stroke();
+        }
+
+        // Zielpunkt zeichnen
+        const pulse = 3 + Math.sin(Date.now() / 150) * 1.5;
+        ctx.beginPath();
+        ctx.arc(user.x, user.y, pulse, 0, 2 * Math.PI);
+        ctx.fillStyle = user.color;
+        ctx.fill();
       }
-      pointer.style.left = (canvas.offsetLeft + x) + "px";
-      pointer.style.top = (canvas.offsetTop + y) + "px";
-    }
 
-    function removePointer(id) {
-      const el = document.getElementById("ptr_" + id);
-      if (el) el.remove();
+      requestAnimationFrame(draw);
     }
 
     socket.on("draw", data => {
-      const { id, x, y, color, isStart } = data;
-
-      // Update position of pointer for user
-      updatePointer(id, x, y);
-
-      // Drawing
-      ctx.fillStyle = color || "red";
-      ctx.strokeStyle = color || "red";
-      ctx.lineWidth = 4;
-      ctx.lineCap = "round";
-
-      if (!clients[id]) {
-        clients[id] = { lastX: x, lastY: y };
-        return;
+      if (!users[data.id]) {
+        users[data.id] = {
+          x: data.x,
+          y: data.y,
+          lastX: null,
+          lastY: null,
+          color: data.color,
+          isDrawing: false
+        };
       }
 
-      if (isStart) {
-        clients[id].lastX = x;
-        clients[id].lastY = y;
-        return;
+      const user = users[data.id];
+
+      // Nur Linie zeichnen, wenn aktiv gezeichnet wird
+      if (data.isStart) {
+        user.isDrawing = true;
+        user.lastX = data.x;
+        user.lastY = data.y;
+      } else if (!data.isStart && user.isDrawing) {
+        user.lastX = user.x;
+        user.lastY = user.y;
       }
 
-      ctx.beginPath();
-      ctx.moveTo(clients[id].lastX, clients[id].lastY);
-      ctx.lineTo(x, y);
-      ctx.stroke();
-      clients[id].lastX = x;
-      clients[id].lastY = y;
+      user.x = data.x;
+      user.y = data.y;
+    });
+
+    socket.on("drawend", id => {
+      if (users[id]) {
+        users[id].isDrawing = false;
+        users[id].lastX = null;
+        users[id].lastY = null;
+      }
     });
 
     socket.on("clear", () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      pointers.innerHTML = "";
-      clients = {};
     });
 
-    socket.on("disconnectClient", id => {
-      delete clients[id];
-      removePointer(id);
-    });
+    draw();
   </script>
 </body>
 </html>
