@@ -1,12 +1,11 @@
 
 <!DOCTYPE html>
-
 <html lang="de">
 <head>
-<meta charset="utf-8"/>
-<title>Laserpointer v3.1</title>
-<meta content="width=device-width, initial-scale=1.0" name="viewport">
-<style>
+  <meta charset="UTF-8">
+  <title>Laserpointer v3.1</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <style>
     body {
       background: black;
       color: white;
@@ -65,16 +64,17 @@
       opacity: 0.5;
     }
   </style>
-</meta></head>
+</head>
 <body>
-<div id="version">v3.4</div>
-<h2>Laserpointer Steuerung</h2>
-<div id="colorPicker"></div>
-<button id="toggleMode">Touch</button>
-<button id="laserBtn"></button>
-<div id="drawarea"></div>
+  <div id="version">v3.1</div>
+  <h2>Laserpointer Steuerung</h2>
+  <div id="colorPicker"></div>
+  <button id="toggleMode">Touch</button>
+  <button id="laserBtn"></button>
+  <div id="drawarea"></div>
 
-<script>
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
     const socket = io();
     let color = 'red';
     let mode = 'touch'; // 'touch' or 'motion'
@@ -145,69 +145,5 @@
       socket.emit('draw',{x:nx,y:nz,color});
     });
   </script>
-<script>
-const socket = io();
-const drawarea = document.getElementById("drawarea");
-const laserBtn = document.getElementById("laserBtn");
-const toggleBtn = document.getElementById("toggleBtn");
-let mode = "touch";
-let color = "red";
-let laserBtnPressed = false;
-
-toggleBtn.onclick = () => {
-  mode = (mode === 'touch' ? 'motion' : 'touch');
-  toggleBtn.textContent = (mode === 'touch' ? 'Touch' : 'Motion');
-  laserBtn.style.display = (mode === 'motion' ? 'block' : 'none');
-  drawarea.style.display = (mode === 'touch' ? 'block' : 'none');
-};
-
-function setColor(c) {
-  color = c;
-}
-
-drawarea.addEventListener("touchmove", e => {
-  if (mode !== 'touch') return;
-  const touch = e.touches[0];
-  const rect = drawarea.getBoundingClientRect();
-  const x = touch.clientX - rect.left;
-  const y = touch.clientY - rect.top;
-  socket.emit("draw", { x: x * 2, y: y * 2, color });
-});
-
-laserBtn.addEventListener("touchstart", e => {
-  e.preventDefault();
-  laserBtnPressed = true;
-});
-laserBtn.addEventListener("touchend", e => {
-  e.preventDefault();
-  laserBtnPressed = false;
-});
-
-// iOS motion permission
-if (typeof DeviceOrientationEvent !== "undefined" &&
-    typeof DeviceOrientationEvent.requestPermission === "function") {
-  DeviceOrientationEvent.requestPermission().then(response => {
-    if (response === "granted") {
-      window.addEventListener("deviceorientation", handleOrientation);
-    } else {
-      alert("Bewegungsdaten nicht erlaubt");
-    }
-  });
-} else {
-  window.addEventListener("deviceorientation", handleOrientation);
-}
-
-function handleOrientation(e) {
-  if (mode !== 'motion') return;
-  const alpha = e.alpha || 0;  // rechts-links
-  const beta = e.beta || 0;    // hoch-runter
-
-  const x = Math.max(0, Math.min(800, (alpha / 360) * 800));
-  const y = Math.max(0, Math.min(800, ((beta + 180) / 360) * 800));
-
-  if (laserBtnPressed) {
-    socket.emit("draw", { x, y, color });
-  }
-}
-</script></body>
+</body>
 </html>
