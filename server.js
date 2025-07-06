@@ -9,13 +9,8 @@ io.on("connection", socket => {
   socket.on("draw", data => {
     socket.broadcast.emit("draw", data);
   });
-
   socket.on("clear", () => {
     io.emit("clear");
-  });
-
-  socket.on("edgeHit", (data) => {
-    socket.broadcast.emit("edgeHit", data); // send to all others, including control
   });
 });
 
