@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>Laserpointer Display v3.14</title>
+  <title>Laserpointer Display v3.15</title>
   <style>
     body { margin:0; background:black; }
     canvas { display:block; margin:auto; background:black; }
@@ -14,7 +14,7 @@
   </style>
 </head>
 <body>
-  <div id="version">v3.14 (smooth dynamic)</div>
+  <div id="version">v3.15 (smooth dynamic 5–12px)</div>
   <canvas id="canvas" width="1024" height="1024"></canvas>
   <script src="/socket.io/socket.io.js"></script>
   <script>
@@ -26,7 +26,7 @@
           CX   = c.width/2,
           CY   = c.height/2;
 
-    // Admin-overrides
+    // Admin-Overrides
     let MAX_H   = 20,
         MAX_V   = 20,
         SMOOTH  = 0.15;
@@ -50,7 +50,7 @@
     ctx.lineJoin = "round";
 
     function parseLight(hsl) {
-      const m = hsl.match(/hsl\(\s*\d+,\s*\d+%,\s*(\d+)%\s*\)/);
+      const m = hsl.match(/hsl\(\s*\d+,\s*\d+%,\s*(\d+)%\)/);
       return m ? +m[1] : 50;
     }
 
@@ -69,61 +69,63 @@
       if (!deviceId || typeof alpha !== "number") return;
       const now = performance.now();
 
-      // Farbe & Helligkeit
+      // Farbe & Helligkeit speichern
       lastCol[deviceId]   = color;
       lastLight[deviceId] = parseLight(color);
 
-      // Kalibrierung
+      // Kalibrierung beim ersten Draw
       if (isDrawing && !(deviceId in alpha0)) {
-        alpha0[deviceId] = alpha;
-        beta0 [deviceId] = beta;
-        rawPos[deviceId] = { x: CX, y: CY };
-        lastTime[deviceId] = now;
+        alpha0[deviceId]    = alpha;
+        beta0 [deviceId]    = beta;
+        rawPos[deviceId]    = { x: CX, y: CY };
+        lastTime[deviceId]  = now;
         return;
       }
       if (!(deviceId in alpha0)) return;
 
-      // Winkel delta + wrap
+      // Winkel-Delta + Wrap
       let dA = alpha - alpha0[deviceId];
-      if (dA>180)  dA-=360;
-      if (dA<-180) dA+=360;
+      if (dA > 180)  dA -= 360;
+      if (dA < -180) dA += 360;
       let dB = beta - beta0[deviceId];
 
-      // clamp
+      // Clamp
       dA = Math.max(-MAX_H, Math.min(MAX_H, dA));
       dB = Math.max(-MAX_V, Math.min(MAX_V, dB));
 
-      // map to canvas
-      const x = CX - (dA/MAX_H)*CX;
-      const y = CY - (dB/MAX_V)*CY;
+      // Auf Canvas mappen
+      const x = CX - (dA / MAX_H) * CX;
+      const y = CY - (dB / MAX_V) * CY;
 
-      // speed calculation (px/sec)
+      // Geschwindigkeit px/s
       const prev = rawPos[deviceId];
       const dx   = x - prev.x;
       const dy   = y - prev.y;
-      const dt   = (now - lastTime[deviceId]) / 1000; // in Sekunden
-      const speed = dt>0 ? Math.hypot(dx,dy)/dt : 0;
+      const dt   = (now - lastTime[deviceId]) / 1000;
+      const speed = dt > 0 ? Math.hypot(dx, dy) / dt : 0;
 
-      // speichern für next
-      rawPos[deviceId]  = { x, y };
+      // Speichern für nächstes Mal
+      rawPos[deviceId]   = { x, y };
       lastTime[deviceId] = now;
 
       if (isDrawing) {
-        // Geschwindigkeit → norm [0..1] (0: langsam, 2000px/s oder mehr → schnell)
-        const threshold = 2000; 
-        const norm = Math.min(1, speed/threshold);
-        const maxW = 12, minW = 2;
-        const w = maxW - (maxW-minW)*norm;
+        // Geschwindigkeit → norm [0..1]
+        const threshold = 2000;
+        const norm = Math.min(1, speed / threshold);
+
+        // Gleiten zwischen min=5px und max=12px
+        const minW = 5, maxW = 12;
+        const w    = maxW - (maxW - minW) * norm;
 
         segments.push({ x1: prev.x, y1: prev.y, x2: x, y2: y, color, width: w });
       }
     });
 
-    let pulse=0, growing=true;
+    let pulse = 0, growing = true;
     function render() {
       ctx.clearRect(0,0,c.width,c.height);
 
-      // draw all segments
+      // Alle Segmente zeichnen
       for (const s of segments) {
         ctx.strokeStyle = s.color;
         ctx.lineWidth   = s.width;
@@ -133,26 +135,27 @@
         ctx.stroke();
       }
 
-      // pulsating dots
-      pulse += growing?0.2:-0.2;
-      if (pulse>2) growing=false;
-      if (pulse<0) growing=true;
+      // Puls für Punkt
+      pulse += growing ? 0.2 : -0.2;
+      if (pulse > 2) growing = false;
+      if (pulse < 0) growing = true;
 
+      // Pulsierende Punkte an allen Geräten
       for (const id in rawPos) {
-        const { x,y } = rawPos[id];
-        const col     = lastCol[id] || "#fff";
-        // derive current w based on last segment widths? fallback:
-        const wLast = segments.filter(s=>s.color===col).slice(-1)[0]?.width || 6;
-        const r = wLast/2 + pulse;
+        const { x, y } = rawPos[id];
+        const col      = lastCol[id] || "#fff";
+        const lastSeg  = segments.filter(s => s.color === col).slice(-1)[0];
+        const baseW    = lastSeg ? lastSeg.width : (5+12)/2;
+        const r        = baseW/2 + pulse;
 
         ctx.beginPath();
-        ctx.arc(x,y,r,0,2*Math.PI);
+        ctx.arc(x, y, r, 0, 2 * Math.PI);
         ctx.fillStyle = col;
         ctx.fill();
 
-        if ((lastLight[id]||50) < 20) {
+        if ((lastLight[id] || 50) < 20) {
           ctx.beginPath();
-          ctx.arc(x,y,r+3,0,2*Math.PI);
+          ctx.arc(x, y, r + 3, 0, 2 * Math.PI);
           ctx.strokeStyle = "#fff";
           ctx.lineWidth   = 3;
           ctx.stroke();
