@@ -3,31 +3,34 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>Laserpointer Display v3.17</title>
+  <title>Laserpointer Display v3.18</title>
   <style>
-    body { margin:0; background:black }
-    canvas { display:block; margin:auto; background:black }
+    body { margin:0; background:#000 }
+    canvas { display:block; margin:auto; background:#000 }
     #version {
       position:absolute; top:10px; left:10px;
-      color:white; font-family:sans-serif; font-size:14px; opacity:0.6;
+      color:#fff; font-family:sans-serif;
+      font-size:14px; opacity:0.6;
     }
   </style>
 </head>
 <body>
-  <div id="version">v3.17 (multi-user + brushes)</div>
+  <div id="version">v3.18 (multi-user + advanced brushes)</div>
   <canvas id="canvas" width="1024" height="1024"></canvas>
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
-    socket.emit("identify",{ role:"display", deviceId:null });
+    socket.emit("identify", { role: "display", deviceId: null });
 
-    const canvas = document.getElementById("canvas"),
-          ctx    = canvas.getContext("2d"),
-          CX     = canvas.width/2,
-          CY     = canvas.height/2;
+    const c   = document.getElementById("canvas"),
+          ctx = c.getContext("2d"),
+          CX  = c.width/2,
+          CY  = c.height/2;
 
-    // Live-Settings
-    let MAX_H  = 20, MAX_V = 20, SMOOTH = 0.15;
+    // Live-Settings vom Admin
+    let MAX_H   = 20,
+        MAX_V   = 20,
+        SMOOTH  = 0.15;
     socket.on("updateSettings", ({ maxH, maxV, smooth }) => {
       if (typeof maxH   === "number") MAX_H  = maxH;
       if (typeof maxV   === "number") MAX_V  = maxV;
@@ -35,147 +38,159 @@
     });
 
     // State pro Gerät
-    const alpha0    = {};   // Kalibrier-Nullpunkte
-    const beta0     = {};
-    const rawPos    = {};   // Roh-Positionen
-    const smoothPos = {};   // Geglättete Positionen
-    const lastCol   = {};   // Farbe
-    const lastLit   = {};   // Lightness
-    const segments  = [];   // Alle gezeichneten Segmente
+    const alpha0    = {},   // Kalibrier-Nullpunkte
+          beta0     = {},
+          lastRaw   = {},   // Rohposition
+          lastSm     = {},   // Geglättete Position
+          lastCol   = {},   // Farbe
+          lastLit   = {};   // Lightness
 
     ctx.lineCap  = "round";
     ctx.lineJoin = "round";
 
-    // Canvas löschen
+    // Clear vom Admin
     socket.on("clear", () => {
-      ctx.clearRect(0,0,canvas.width,canvas.height);
-      segments.length = 0;
+      ctx.clearRect(0, 0, c.width, c.height);
       for (let k in alpha0)    delete alpha0[k];
       for (let k in beta0)     delete beta0[k];
-      for (let k in rawPos)    delete rawPos[k];
-      for (let k in smoothPos) delete smoothPos[k];
+      for (let k in lastRaw)   delete lastRaw[k];
+      for (let k in lastSm)    delete lastSm[k];
       for (let k in lastCol)   delete lastCol[k];
       for (let k in lastLit)   delete lastLit[k];
     });
+
+    // Hilfsfunktion: HSL → Lightness
+    function parseLight(hsl) {
+      const m = hsl.match(/hsl\(\s*\d+,\s*\d+%,\s*(\d+)%\s*\)/);
+      return m ? +m[1] : 50;
+    }
+
+    // Brush-Stempel entlang Pfad
+    function stampBrush(brush, x0, y0, x1, y1, color) {
+      const dx = x1 - x0, dy = y1 - y0;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 0.5) return;  // zu kurz
+
+      // Abstand zwischen zwei Stempeln
+      const step = 6;
+      const n = Math.max(1, Math.floor(dist/step));
+      for (let i = 0; i <= n; i++) {
+        const t = i/n;
+        const x = x0 + dx*t;
+        const y = y0 + dy*t;
+
+        ctx.strokeStyle = color;
+        ctx.fillStyle   = color;
+
+        if (brush === 1) {
+          // Ein Kreis
+          ctx.beginPath();
+          ctx.arc(x, y, 4, 0, 2*Math.PI);
+          ctx.fill();
+
+        } else if (brush === 2) {
+          // Eine kurze diagonale Linie orientiert an Bewegungsrichtung
+          const angle = Math.atan2(dy, dx);
+          ctx.lineWidth = 4;
+          ctx.beginPath();
+          ctx.moveTo(
+            x - Math.cos(angle)*7.5,
+            y - Math.sin(angle)*7.5
+          );
+          ctx.lineTo(
+            x + Math.cos(angle)*7.5,
+            y + Math.sin(angle)*7.5
+          );
+          ctx.stroke();
+
+        } else if (brush === 3) {
+          // Vier Punkte im Quadrat
+          [ -5, 5 ].forEach(dx0 => {
+            [ -5, 5 ].forEach(dy0 => {
+              ctx.beginPath();
+              ctx.arc(x + dx0, y + dy0, 1.5, 0, 2*Math.PI);
+              ctx.fill();
+            });
+          });
+        }
+      }
+    }
 
     // Bewegungsevent
     socket.on("motion", ({ alpha, beta, color, isDrawing, brush, deviceId }) => {
       if (!deviceId || typeof alpha !== "number") return;
 
-      // 1) Lightness parsen
-      const m = color.match(/hsl\(\s*\d+,\s*\d+%,\s*(\d+)%\s*\)/);
-      lastLit[deviceId] = m ? +m[1] : 50;
+      // Lightness und Farbe speichern
+      lastLit[deviceId] = parseLight(color);
       lastCol[deviceId] = color;
 
-      // 2) Kalibrieren beim ersten Draw
+      // Kalibrieren beim ersten Zeichnen
       if (isDrawing && !(deviceId in alpha0)) {
         alpha0[deviceId] = alpha;
         beta0 [deviceId] = beta;
       }
       if (!(deviceId in alpha0)) return;
 
-      // 3) Winkel-Delta + Wrap-Around
+      // Winkel-Delta + Wrap
       let dA = alpha - alpha0[deviceId];
       if (dA > 180)  dA -= 360;
       if (dA < -180) dA += 360;
       let dB = beta - beta0[deviceId];
 
-      // 4) Clamp
+      // Clamp
       dA = Math.max(-MAX_H, Math.min(MAX_H, dA));
       dB = Math.max(-MAX_V, Math.min(MAX_V, dB));
 
-      // 5) Map auf Canvas
+      // Map auf Canvas
       const rawX = CX - (dA/MAX_H)*CX;
       const rawY = CY - (dB/MAX_V)*CY;
-      rawPos[deviceId] = { x: rawX, y: rawY };
 
-      // 6) Glätten
-      if (!(deviceId in smoothPos)) {
-        smoothPos[deviceId] = { x: CX, y: CY };
+      // Smoothing
+      if (!(deviceId in lastSm)) {
+        lastSm[deviceId] = { x:CX, y:CY };
+        lastRaw[deviceId] = { x:CX, y:CY };
       }
-      const sm = smoothPos[deviceId];
-      sm.x += (rawX - sm.x) * SMOOTH;
-      sm.y += (rawY - sm.y) * SMOOTH;
+      const s = lastSm[deviceId];
+      s.x += (rawX - s.x)*SMOOTH;
+      s.y += (rawY - s.y)*SMOOTH;
 
-      // 7) Zeichnen: nur wenn isDrawing==true
+      // Zeichnen nur wenn gedrückt
       if (isDrawing) {
-        // 7a) Mittellinie
-        ctx.strokeStyle = color;
-        ctx.lineWidth   = (brush === 1 ? 6 : 2);
-        ctx.beginPath();
-        ctx.moveTo(sm.x, sm.y);
-        ctx.lineTo(
-          sm.x + (rawX - sm.x),
-          sm.y + (rawY - sm.y)
-        );
-        ctx.stroke();
-
-        // 7b) Brush-Form am Endpunkt
-        const ex = sm.x + (rawX - sm.x),
-              ey = sm.y + (rawY - sm.y);
-
-        if (brush === 1) {
-          // Punkt
-          ctx.fillStyle = color;
-          ctx.beginPath();
-          ctx.arc(ex, ey, 4, 0, 2*Math.PI);
-          ctx.fill();
-
-        } else if (brush === 2) {
-          // Diagonale Linie 15px
-          ctx.strokeStyle = color;
-          ctx.lineWidth   = 4;
-          ctx.beginPath();
-          ctx.moveTo(ex - 7.5, ey - 7.5);
-          ctx.lineTo(ex + 7.5, ey + 7.5);
-          ctx.stroke();
-
-        } else if (brush === 3) {
-          // Vier Punkte 3px im Quadrat
-          ctx.fillStyle = color;
-          [ -5, 5 ].forEach(dx => {
-            [ -5, 5 ].forEach(dy => {
-              ctx.beginPath();
-              ctx.arc(ex + dx, ey + dy, 1.5, 0, 2*Math.PI);
-              ctx.fill();
-            });
-          });
-        }
-
-        // 7c) weißer Ring bei Low-Light
-        if (lastLit[deviceId] < 20) {
-          ctx.strokeStyle = "#fff";
-          ctx.lineWidth   = 3;
-          ctx.beginPath();
-          ctx.arc(ex, ey, 8, 0, 2*Math.PI);
-          ctx.stroke();
-        }
+        // Stempeln entlang Pfad von letzter glatter Position → neue glatte Position
+        const prev = lastSm[deviceId];
+        stampBrush(brush, prev.x, prev.y, s.x, s.y, color);
       }
+
+      // Positionen updaten
+      lastRaw[deviceId] = { x:rawX, y:rawY };
+      lastSm[deviceId] = s;
     });
 
-    // Render-Loop: pulsierende Punkte
-    let pulse = 0, grow = true;
+    // Pulsierender Punkt-Loop
+    let pulse=0, growing=true;
     function render() {
-      // An dieser Stelle nur Puls-Punkte, die Segmente haben wir live direkt im motion-Handler gezeichnet
-      pulse += grow ? 0.2 : -0.2;
-      if (pulse > 2) grow = false;
-      if (pulse < 0) grow = true;
+      // Punkt immer sichtbar
+      pulse += growing?0.2:-0.2;
+      if (pulse>2) growing=false;
+      if (pulse<0) growing=true;
 
-      for (let id in smoothPos) {
-        const { x, y } = smoothPos[id];
-        const col      = lastCol[id] || "#fff";
-        const r        = 4 + pulse;
+      for (let id in lastSm) {
+        const { x,y } = lastSm[id];
+        const col     = lastCol[id]||"#fff";
+        const r       = 4 + pulse;
 
+        // Punkt in Farbe
         ctx.beginPath();
-        ctx.arc(x, y, r, 0, 2*Math.PI);
+        ctx.arc(x,y,r,0,2*Math.PI);
         ctx.fillStyle = col;
         ctx.fill();
 
-        if (lastLit[id] < 20) {
+        // Weißer Ring bei dunkel
+        if (lastLit[id]<20) {
+          ctx.beginPath();
+          ctx.arc(x,y,r+3,0,2*Math.PI);
           ctx.strokeStyle = "#fff";
           ctx.lineWidth   = 3;
-          ctx.beginPath();
-          ctx.arc(x, y, r+3, 0, 2*Math.PI);
           ctx.stroke();
         }
       }
