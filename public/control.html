@@ -2,297 +2,188 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Laserpointer Control v3.16</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Laserpointer Control v3.17</title>
   <style>
-    /* Kein Scroll und keine Auswahl/Callouts */
-    html, body {
-      margin: 0;
-      padding: 0;
-      height: 100%;
-      overflow: hidden;
-      -webkit-touch-callout: none;
-      -webkit-user-select: none;
-      -moz-user-select: none;
-      -ms-user-select: none;
-      user-select: none;
-    }
-
-    body {
-      padding: 20px 20px 140px; /* bottom-Padding, damit Pinsel-Icons immer sichtbar sind */
-      background: #000;
-      color: #fff;
-      font-family: sans-serif;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      box-sizing: border-box;
-      position: relative;
-    }
-
-    .version {
-      position: absolute;
-      top: 10px;
-      right: 20px;
-      font-size: 14px;
-      opacity: 0.7;
-    }
-
-    #controls {
-      width: 100%;
-      max-width: 400px;
-      display: flex;
-      flex-direction: column;
-      gap: 20px;
-      margin-top: 40px;
-    }
-
-    .slider-group {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-    .slider-group input[type="range"] {
-      flex: 1;
-      height: 20px;
-      border-radius: 10px;
-      background: transparent; /* JS setzt gradient */
-      cursor: pointer;
-      -webkit-appearance: none;
-    }
-    .slider-group input[type="range"]::-webkit-slider-runnable-track {
-      height: 20px;
-      border-radius: 10px;
-    }
-    .slider-group input[type="range"]::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      width: 24px; height: 24px;
-      margin-top: -2px;
-      background: #fff;
-      border: 1px solid #888;
-      border-radius: 50%;
-    }
-    .slider-group input[type="range"]::-moz-range-track {
-      height: 20px;
-      border-radius: 10px;
-    }
-    .slider-group input[type="range"]::-moz-range-thumb {
-      width: 24px; height: 24px;
-      background: #fff;
-      border: 1px solid #888;
-      border-radius: 50%;
-    }
-
-    .value {
-      width: 50px;
-      text-align: right;
-      font-size: 1rem;
-    }
-
-    #preview {
-      width: 40px; height: 40px;
-      border: 2px solid #fff;
-      box-sizing: border-box;
-      background: hsl(0,100%,50%);
-    }
-
-    /* Pinsel-Icons weiter oben, damit sie nicht von der Adressleiste verdeckt werden */
-    #brushes {
-      position: absolute;
-      bottom: 100px;
-      left: 50%;
-      transform: translateX(-50%);
-      display: flex;
-      gap: 20px;
-    }
-    .brush {
-      width: 50px; height: 50px;
-      background: #111;
-      border: 2px solid #888;
-      box-sizing: border-box;
-      cursor: pointer;
-    }
-    .brush.selected {
-      border-color: #fff;
-    }
-
-    /* Laser-Button ins untere Drittel */
-    #laserBtn {
-      position: absolute;
-      bottom: 33%;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 80px; height: 80px;
-      border-radius: 50%;
-      background: #fff;
-      border: none;
-      touch-action: none;
-      z-index: 10;
-    }
-
-    /* Gyro-Permission Button */
-    #permBtn {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      padding: 12px 20px;
-      font-size: 16px;
-      z-index: 1000;
-    }
+    html, body { margin:0; padding:0; height:100%; overflow:hidden;
+                 -webkit-touch-callout:none; user-select:none; }
+    body { padding:20px 20px 140px; background:#000; color:#fff;
+           font-family:sans-serif; display:flex; flex-direction:column;
+           align-items:center; box-sizing:border-box; position:relative; }
+    .version { position:absolute; top:10px; right:20px; opacity:0.7; }
+    #controls { width:100%; max-width:400px; display:flex;
+                flex-direction:column; gap:20px; margin-top:40px; }
+    .slider-group { display:flex; align-items:center; gap:10px; }
+    input[type=range] { flex:1; height:20px; border-radius:10px;
+                        background:transparent; cursor:pointer;
+                        -webkit-appearance:none; }
+    input[type=range]::-webkit-slider-runnable-track { height:20px; border-radius:10px; }
+    input[type=range]::-webkit-slider-thumb { -webkit-appearance:none;
+      width:24px;height:24px;margin-top:-2px;background:#fff;border:1px solid#888;
+      border-radius:50%; }
+    input[type=range]::-moz-range-track { height:20px;border-radius:10px; }
+    input[type=range]::-moz-range-thumb { width:24px;height:24px;background:#fff;
+      border:1px solid#888;border-radius:50%; }
+    .value { width:50px;text-align:right;font-size:1rem; }
+    #preview { width:40px;height:40px;border:2px solid #fff;
+               background:hsl(0,100%,50%); }
+    #brushes { position:absolute; bottom:100px; left:50%; transform:translateX(-50%);
+               display:flex; gap:20px; }
+    .brush { width:50px;height:50px;background:#111;border:2px solid#888;
+             cursor:pointer; }
+    .brush.selected { border-color:#fff; }
+    #laserBtn { position:absolute; bottom:33%; left:50%;
+                transform:translateX(-50%); width:80px;height:80px;
+                background:#fff;border:none;border-radius:50%;
+                touch-action:none; z-index:10; }
+    #permBtn { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+               padding:12px 20px; font-size:16px; z-index:1000; }
   </style>
 </head>
 <body>
   <button id="permBtn">Gyro freigeben</button>
-  <div class="version">v3.16</div>
+  <div class="version">v3.17</div>
 
   <div id="controls">
-    <!-- Farbton -->
     <div class="slider-group">
-      <input id="hue" type="range" min="0" max="360" value="0"/>
-      <span id="hueVal" class="value">0°</span>
+      <input id="hue" type="range" min="0" max="360" value="0"/><span id="hueVal" class="value">0°</span>
     </div>
-    <!-- Intensität -->
     <div class="slider-group">
-      <input id="intensity" type="range" min="0" max="100" value="50"/>
-      <span id="intVal" class="value">50 %</span>
+      <input id="intensity" type="range" min="0" max="100" value="50"/><span id="intVal" class="value">50 %</span>
       <div id="preview"></div>
     </div>
   </div>
 
   <button id="laserBtn"></button>
 
-  <!-- Pinsel-Auswahl -->
   <div id="brushes">
-    <canvas class="brush" id="brush1" data-brush="1" width="50" height="50"></canvas>
-    <canvas class="brush" id="brush2" data-brush="2" width="50" height="50"></canvas>
-    <canvas class="brush" id="brush3" data-brush="3" width="50" height="50"></canvas>
+    <canvas class="brush" data-brush="1" width="50" height="50"></canvas>
+    <canvas class="brush" data-brush="2" width="50" height="50"></canvas>
+    <canvas class="brush" data-brush="3" width="50" height="50"></canvas>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
-    const socket = io();
+    const socket    = io(),
+          permBtn   = document.getElementById("permBtn"),
+          hueSlider = document.getElementById("hue"),
+          intSlider = document.getElementById("intensity"),
+          hueVal    = document.getElementById("hueVal"),
+          intVal    = document.getElementById("intVal"),
+          preview   = document.getElementById("preview"),
+          laserBtn  = document.getElementById("laserBtn"),
+          brushes   = document.querySelectorAll(".brush");
+
+    // Geräte-ID
     let deviceId = localStorage.getItem("deviceId");
     if (!deviceId) {
       deviceId = crypto.randomUUID();
       localStorage.setItem("deviceId", deviceId);
     }
-    socket.emit("identify", { role: "control", deviceId });
+    socket.emit("identify", { role:"control", deviceId });
 
-    const permBtn   = document.getElementById("permBtn");
-    const hueSlider = document.getElementById("hue"),  hueVal = document.getElementById("hueVal");
-    const intSlider = document.getElementById("intensity"), intVal = document.getElementById("intVal");
-    const preview   = document.getElementById("preview");
-    const laserBtn  = document.getElementById("laserBtn");
-    const brushEls  = document.querySelectorAll(".brush");
+    // State
+    let hue=0, intensity=50, colorHSL=`hsl(0,100%,50%)`,
+        brushType=1, isDrawing=false, lastOri={alpha:0,beta:0};
 
-    let isDrawing = false,
-        hue = 0,
-        intensity = 50,
-        colorHSL = `hsl(0,100%,50%)`,
-        brushType = 1;
-
-    permBtn.addEventListener("click", async () => {
-      if (DeviceOrientationEvent.requestPermission) {
-        try {
-          const res = await DeviceOrientationEvent.requestPermission();
-          if (res === "granted") {
-            window.addEventListener("deviceorientation", sendOri);
-            permBtn.style.display = "none";
-          }
-        } catch {}
-      } else {
-        window.addEventListener("deviceorientation", sendOri);
-        permBtn.style.display = "none";
-      }
+    // Gyro-Permission
+    permBtn.addEventListener("click", async()=>{
+      if(DeviceOrientationEvent.requestPermission){
+        const res = await DeviceOrientationEvent.requestPermission()
+        if(res==="granted") startGyro();
+      } else startGyro();
     });
+    function startGyro(){
+      window.addEventListener("deviceorientation", e=>{
+        lastOri = { alpha:e.alpha, beta:e.beta };
+        sendMotion();
+      });
+      permBtn.style.display="none";
+    }
 
-    function sendOri(e) {
-      if (e.alpha == null || e.beta == null) return;
+    // Motion senden
+    function sendMotion(){
       socket.emit("motion", {
-        alpha: e.alpha,
-        beta: e.beta,
+        alpha: lastOri.alpha,
+        beta:  lastOri.beta,
         color: colorHSL,
         brush: brushType,
         isDrawing
       });
     }
 
-    function setHueBackground() {
+    // Button-Events
+    laserBtn.addEventListener("touchstart", e=>{
+      e.preventDefault();
+      isDrawing = true;
+      sendMotion();
+    });
+    laserBtn.addEventListener("touchend", e=>{
+      e.preventDefault();
+      isDrawing = false;
+      sendMotion();
+    });
+
+    // Slider BG
+    function setHueBG(){
       hueSlider.style.background =
-        'linear-gradient(to right, ' +
-          'hsl(0,100%,50%), hsl(60,100%,50%), hsl(120,100%,50%), ' +
-          'hsl(180,100%,50%), hsl(240,100%,50%), hsl(300,100%,50%), ' +
-          'hsl(360,100%,50%)' +
-        ')';
+        "linear-gradient(to right,"+
+        "hsl(0,100%,50%),hsl(60,100%,50%),hsl(120,100%,50%),"+
+        "hsl(180,100%,50%),hsl(240,100%,50%),hsl(300,100%,50%),hsl(360,100%,50%)"
+        +")";
     }
-    function setIntensityBackground() {
+    function setIntBG(){
       const mid = `hsl(${hue},100%,50%)`;
       intSlider.style.background =
-        `linear-gradient(to right, black, ${mid}, white)`;
+        `linear-gradient(to right,black,${mid},white)`;
     }
-    function updateColor() {
-      hue = +hueSlider.value;
+
+    function updateColor(){
+      hue       = +hueSlider.value;
       intensity = +intSlider.value;
-      hueVal.textContent = hue + "°";
-      intVal.textContent = intensity + " %";
+      hueVal.textContent = hue+"°";
+      intVal.textContent = intensity+" %";
       colorHSL = `hsl(${hue},100%,${intensity}%)`;
       preview.style.background = colorHSL;
-      setIntensityBackground();
+      setIntBG();
+      sendMotion();  // sofort Farbe updaten
     }
 
-    setHueBackground();
-    setIntensityBackground();
-    updateColor();
-    hueSlider.addEventListener("input", updateColor);
-    intSlider.addEventListener("input", updateColor);
+    setHueBG(); setIntBG(); updateColor();
+    hueSlider .addEventListener("input",updateColor);
+    intSlider .addEventListener("input",updateColor);
 
-    brushEls.forEach(el => {
-      const id = +el.dataset.brush;
-      const ctx = el.getContext("2d");
+    // Pinsel-Vorschau & Auswahl
+    brushes.forEach(cvs=>{
+      const id = +cvs.dataset.brush,
+            ctx= cvs.getContext("2d");
       ctx.clearRect(0,0,50,50);
-      if (id === 1) {
-        ctx.fillStyle = "#fff";
-        ctx.beginPath();
-        ctx.arc(25,25,5,0,2*Math.PI);
-        ctx.fill();
+      ctx.fillStyle = "#fff";
+      ctx.strokeStyle= "#fff";
+      if(id===1){
+        ctx.beginPath(); ctx.arc(25,25,5,0,2*Math.PI); ctx.fill();
       }
-      if (id === 2) {
-        ctx.strokeStyle = "#fff";
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        ctx.moveTo(17.5,17.5);
-        ctx.lineTo(32.5,32.5);
-        ctx.stroke();
+      if(id===2){
+        ctx.lineWidth=4; ctx.beginPath();
+        ctx.moveTo(17.5,17.5); ctx.lineTo(32.5,32.5); ctx.stroke();
       }
-      if (id === 3) {
-        ctx.fillStyle = "#fff";
-        [15,35].forEach(x =>
-          [15,35].forEach(y => {
-            ctx.beginPath();
-            ctx.arc(x,y,1.5,0,2*Math.PI);
-            ctx.fill();
+      if(id===3){
+        [15,35].forEach(x=>
+          [15,35].forEach(y=>{
+            ctx.beginPath(); ctx.arc(x,y,1.5,0,2*Math.PI); ctx.fill();
           })
         );
       }
-      el.addEventListener("click", () => {
-        brushEls.forEach(b => b.classList.remove("selected"));
-        el.classList.add("selected");
-        brushType = id;
+      cvs.addEventListener("click",()=>{
+        brushes.forEach(b=>b.classList.remove("selected"));
+        cvs.classList.add("selected");
+        brushType=id;
+        sendMotion();
       });
     });
     document.querySelector(".brush[data-brush='1']").classList.add("selected");
 
-    laserBtn.addEventListener("touchstart", e => {
-      e.preventDefault();
-      isDrawing = true;
-    });
-    laserBtn.addEventListener("touchend", e => {
-      e.preventDefault();
-      isDrawing = false;
-    });
-
-    document.addEventListener("contextmenu", e => e.preventDefault());
+    document.addEventListener("contextmenu",e=>e.preventDefault());
   </script>
 </body>
 </html>
