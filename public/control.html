@@ -8,94 +8,112 @@
   <style>
     body {
       margin: 0;
-      background: black;
+      background: #000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
       color: white;
       font-family: sans-serif;
-      text-align: center;
-    }
-    .color-button {
-      width: 10%;
-      aspect-ratio: 1;
-      margin: 1%;
-      border: none;
-      border-radius: 50%;
-    }
-    #laser {
-      width: 30vw;
-      height: 30vw;
-      border-radius: 50%;
-      margin-top: 20px;
-      background: white;
-      border: none;
     }
     .version {
       position: absolute;
       top: 10px;
-      right: 20px;
-      color: white;
+      right: 10px;
       font-size: 14px;
+    }
+    .color-buttons {
+      margin: 10px;
+    }
+    .color-button {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      margin: 5px;
+      border: none;
+    }
+    #laserBtn {
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: white;
+      margin-top: 20px;
+      border: none;
+      touch-action: none;
     }
   </style>
 </head>
 <body>
   <div class="version">v3.2</div>
-  <div id="colorButtons"></div>
-  <button id="laser"></button>
+  <div class="color-buttons">
+    <button class="color-button" style="background:red" data-color="red"></button>
+    <button class="color-button" style="background:lime" data-color="lime"></button>
+    <button class="color-button" style="background:blue" data-color="blue"></button>
+    <button class="color-button" style="background:yellow" data-color="yellow"></button>
+    <button class="color-button" style="background:magenta" data-color="magenta"></button>
+    <button class="color-button" style="background:cyan" data-color="cyan"></button>
+    <button class="color-button" style="background:orange" data-color="orange"></button>
+    <button class="color-button" style="background:white" data-color="white"></button>
+    <button class="color-button" style="background:gray" data-color="gray"></button>
+    <button class="color-button" style="background:pink" data-color="pink"></button>
+  </div>
+  <button id="laserBtn"></button>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
+    let currentColor = "red";
     let isDrawing = false;
-    let color = "#ffffff";
+    let permissionGranted = false;
 
-    const colors = [
-      "#ff0000", "#00ff00", "#0000ff", "#ffff00", "#ff00ff",
-      "#00ffff", "#ffffff", "#ff8800", "#888888", "#00ff88"
-    ];
-
-    const colorContainer = document.getElementById("colorButtons");
-    colors.forEach(c => {
-      const btn = document.createElement("button");
-      btn.className = "color-button";
-      btn.style.backgroundColor = c;
-      btn.onclick = () => color = c;
-      colorContainer.appendChild(btn);
-    });
-
-    const laserButton = document.getElementById("laser");
-    laserButton.addEventListener("touchstart", e => {
-      e.preventDefault();
-      isDrawing = true;
-    });
-    laserButton.addEventListener("touchend", e => {
-      e.preventDefault();
-      isDrawing = false;
-    });
-
-    function sendOrientation(alpha, beta) {
-      socket.emit("motion", { alpha, beta, color, isDrawing });
-    }
-
-    async function initMotion() {
-      if (typeof DeviceOrientationEvent.requestPermission === "function") {
-        await DeviceOrientationEvent.requestPermission().then(response => {
-          if (response === "granted") {
-            window.addEventListener("deviceorientation", handleOrientation);
-          }
-        }).catch(console.error);
+    // iOS-Permission
+    function requestPermissionIfNeeded() {
+      if (
+        typeof DeviceOrientationEvent !== "undefined" &&
+        typeof DeviceOrientationEvent.requestPermission === "function"
+      ) {
+        DeviceOrientationEvent.requestPermission()
+          .then(response => {
+            if (response === "granted") {
+              permissionGranted = true;
+              window.addEventListener("deviceorientation", handleOrientation);
+            }
+          })
+          .catch(console.error);
       } else {
+        // Nicht iOS
         window.addEventListener("deviceorientation", handleOrientation);
       }
     }
 
-    function handleOrientation(event) {
-      const { alpha, beta } = event;
-      if (alpha != null && beta != null) {
-        sendOrientation(alpha, beta);
-      }
+    function handleOrientation(e) {
+      if (!permissionGranted && typeof DeviceOrientationEvent.requestPermission === "function") return;
+
+      socket.emit("motion", {
+        alpha: e.alpha,
+        beta: e.beta,
+        color: currentColor,
+        isDrawing: isDrawing
+      });
     }
 
-    initMotion();
+    // Farben auswählen
+    document.querySelectorAll(".color-button").forEach(btn => {
+      btn.addEventListener("click", () => {
+        currentColor = btn.getAttribute("data-color");
+      });
+    });
+
+    const laserBtn = document.getElementById("laserBtn");
+    laserBtn.addEventListener("touchstart", e => {
+      e.preventDefault();
+      isDrawing = true;
+    });
+    laserBtn.addEventListener("touchend", e => {
+      e.preventDefault();
+      isDrawing = false;
+    });
+
+    document.body.addEventListener("touchstart", requestPermissionIfNeeded, { once: true });
   </script>
 </body>
 </html>
