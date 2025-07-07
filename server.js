@@ -12,29 +12,48 @@ const INACTIVITY_TIMEOUT = 5 * 1000;
 // clients: socketId → { ip, type, deviceId, lastMotion }
 const clients = {};
 
+// Funktion zum Broadcasten der aktuellen Client-Liste
+function broadcastClients() {
+  const now = Date.now();
+  const list = Object.entries(clients).map(([socketId, info]) => ({
+    socketId,
+    ip:       info.ip,
+    deviceId: info.deviceId,
+    type:     info.type,
+    // active nur, wenn Control und zuletzt motion innerhalb Timeout
+    active:   info.type === "control" && (now - info.lastMotion) < INACTIVITY_TIMEOUT
+  }));
+  io.emit("client-list", list);
+}
+
 io.on("connection", socket => {
   const ip = socket.handshake.address;
-  clients[socket.id] = { ip, type: null, deviceId: null, lastMotion: Date.now() };
+  clients[socket.id] = {
+    ip,
+    type:       null,
+    deviceId:   null,
+    lastMotion: Date.now()
+  };
 
-  // Rollen- und Geräte-ID setzen
+  // Rollen- und Gerätekennung
   socket.on("identify", ({ role, deviceId }) => {
-    if (["control","display","admin"].includes(role)) {
+    if (["control", "display", "admin"].includes(role)) {
       clients[socket.id].type     = role;
       clients[socket.id].deviceId = deviceId || null;
       broadcastClients();
     }
   });
 
-  // Motion-Event: Zeitstempel aktualisieren und weiterleiten
+  // Motion-Event: Timestamp aktualisieren und weiterleiten
   socket.on("motion", data => {
     if (clients[socket.id]) {
       clients[socket.id].lastMotion = Date.now();
     }
     io.emit("motion", data);
-    broadcastClients();
+    // kein weiterer broadcastClients() hier nötig
   });
 
-  // Admin-Einstellungen weiterleiten
+  // Admin-Settings weiterleiten
   socket.on("updateSettings", settings => {
     io.emit("updateSettings", settings);
   });
@@ -44,26 +63,17 @@ io.on("connection", socket => {
     io.emit("clear");
   });
 
-  // Verbindung beenden
+  // Trennung: Client entfernen
   socket.on("disconnect", () => {
     delete clients[socket.id];
     broadcastClients();
   });
-
-  // Sendet Client-Liste mit Active-Flag
-  function broadcastClients() {
-    const now = Date.now();
-    const list = Object.entries(clients).map(([id, info]) => ({
-      socketId: id,
-      ip:       info.ip,
-      deviceId: info.deviceId,
-      type:     info.type,
-      // active, wenn Control und innerhalb des Timeouts zuletzt motion gesendet
-      active:   info.type === "control" && (now - info.lastMotion) < INACTIVITY_TIMEOUT
-    }));
-    io.emit("client-list", list);
-  }
 });
 
+// Periodisch (jede Sekunde) die Liste an alle Admins senden
+setInterval(broadcastClients, 1000);
+
 const PORT = process.env.PORT || 3000;
-http.listen(PORT, () => console.log(`Server läuft auf Port ${PORT}`));
+http.listen(PORT, () => {
+  console.log(`Server läuft auf Port ${PORT}`);
+});
