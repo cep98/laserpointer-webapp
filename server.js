@@ -3,44 +3,55 @@ const app     = express();
 const http    = require("http").createServer(app);
 const io      = require("socket.io")(http);
 
-// Statische Dateien aus "public"
+// Statische Dateien aus public
 app.use(express.static("public"));
 
-// Mappe socket.id → Client-IP
+// Aktive Clients: socket.id → { ip, type }
 const clients = {};
 
 io.on("connection", socket => {
-  // Client-IP ermitteln
   const ip = socket.handshake.address;
-  clients[socket.id] = ip;
+  clients[socket.id] = { ip, type: null };
 
-  // Sobald jemand connectet/disconnectet, sende die Liste an alle
-  const broadcastClientList = () => {
-    const list = Object.entries(clients).map(([id, ip]) => ({ id, ip }));
-    io.emit("client-list", list);
-  };
-  broadcastClientList();
+  // Rollen-Identifikation
+  socket.on("identify", role => {
+    if (["control","display","admin"].includes(role)) {
+      clients[socket.id].type = role;
+      broadcastClients();
+    }
+  });
 
-  // Motion-Events weiterleiten
+  // Gyro-/Motion-Daten weiterleiten
   socket.on("motion", data => {
     io.emit("motion", data);
   });
 
-  // Admin-Settings (maxH, maxV, smooth) weiterleiten
+  // Admin-Einstellungen weiterleiten
   socket.on("updateSettings", settings => {
     io.emit("updateSettings", settings);
   });
 
-  // Clear-Event
+  // Canvas löschen
   socket.on("clear", () => {
     io.emit("clear");
   });
 
+  // Bei Trennung entfernen
   socket.on("disconnect", () => {
     delete clients[socket.id];
-    broadcastClientList();
+    broadcastClients();
   });
+
+  // Liste aller Clients senden
+  function broadcastClients() {
+    const list = Object.entries(clients).map(([id, info]) => ({
+      id, ip: info.ip, type: info.type
+    }));
+    io.emit("client-list", list);
+  }
 });
 
 const PORT = process.env.PORT || 3000;
-http.listen(PORT, () => console.log(`Server läuft auf Port ${PORT}`));
+http.listen(PORT, () => {
+  console.log(`Server läuft auf Port ${PORT}`);
+});
