@@ -1,38 +1,82 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8" />
-  <title>Display</title>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Laserpointer Control v3.0</title>
   <style>
-    html, body {
-      margin: 0;
-      overflow: hidden;
-      background: black;
+    body { margin:0; background:#000; color:#fff; font-family:sans-serif; text-align:center; }
+    .version { position:absolute; top:10px; right:10px; font-size:14px; opacity:0.6; }
+    #colors { display:flex; flex-wrap:wrap; justify-content:center; margin-top:20px; gap:8px; }
+    .color-button {
+      width:30px; height:30px; border-radius:50%; border:none; cursor:pointer;
     }
-    canvas {
-      display: block;
-      background: black;
+    #laserBtn {
+      width:80px; height:80px; border-radius:50%; background:#fff;
+      margin:30px auto; border:none; touch-action:none;
     }
   </style>
 </head>
 <body>
-  <canvas id="canvas" width="1024" height="1024"></canvas>
+  <div class="version">v3.0</div>
+  <div id="colors"></div>
+  <button id="laserBtn"></button>
+
   <script src="/socket.io/socket.io.js"></script>
   <script>
-    const canvas = document.getElementById("canvas");
-    const ctx = canvas.getContext("2d");
     const socket = io();
+    let isDrawing = false;
+    let color = "#ff0000";
+    const maxAngle = 20;
 
-    socket.on("draw", data => {
-      ctx.fillStyle = data.color;
-      ctx.beginPath();
-      ctx.arc(data.x, data.y, 5, 0, Math.PI * 2);
-      ctx.fill();
+    // Farbbuttons
+    const cols = ["#ff0000","#00ff00","#0000ff","#ffff00","#ff00ff","#00ffff","#ffffff","#ff8800","#888888","#00ff88"];
+    const colorsDiv = document.getElementById("colors");
+    cols.forEach(c => {
+      const b = document.createElement("button");
+      b.className = "color-button";
+      b.style.background = c;
+      b.onclick = () => color = c;
+      colorsDiv.appendChild(b);
     });
 
-    socket.on("clear", () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Laserbutton
+    const laser = document.getElementById("laserBtn");
+    laser.addEventListener("touchstart", e => {
+      e.preventDefault();
+      isDrawing = true;
     });
+    laser.addEventListener("touchend", e => {
+      e.preventDefault();
+      isDrawing = false;
+    });
+
+    // Orientation senden
+    function sendOri(e) {
+      if (e.alpha == null || e.beta == null) return;
+      socket.emit("motion", {
+        alpha: e.alpha,
+        beta:  e.beta,
+        color,
+        isDrawing
+      });
+    }
+
+    // iOS-Permission + Listener
+    function init() {
+      if (typeof DeviceOrientationEvent.requestPermission === "function") {
+        DeviceOrientationEvent.requestPermission()
+          .then(res => {
+            if (res === "granted")
+              window.addEventListener("deviceorientation", sendOri);
+          })
+          .catch(console.error);
+      } else {
+        window.addEventListener("deviceorientation", sendOri);
+      }
+    }
+    // beim ersten Touch anfordern
+    document.body.addEventListener("touchstart", init, { once: true });
   </script>
 </body>
 </html>
