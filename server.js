@@ -7,26 +7,20 @@ const io = require("socket.io")(http);
 app.use(express.static("public"));
 
 io.on("connection", socket => {
-  console.log("Ein Benutzer ist verbunden.");
+  console.log(`Client connected: ${socket.id}`);
 
-  socket.on("draw", data => {
-    socket.broadcast.emit("draw", data);
-  });
-
+  // Gyro-Daten weiterleiten
   socket.on("motion", data => {
     io.emit("motion", data);
   });
 
-  socket.on("drawEnd", () => {
-    socket.broadcast.emit("drawEnd");
-  });
-
+  // Optional: Canvas löschen (z.B. via Admin)
   socket.on("clear", () => {
     io.emit("clear");
   });
 
   socket.on("disconnect", () => {
-    console.log("Ein Benutzer hat die Verbindung getrennt.");
+    console.log(`Client disconnected: ${socket.id}`);
   });
 });
 
