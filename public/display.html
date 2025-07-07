@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>Laserpointer Display v3.6</title>
+  <title>Laserpointer Display (multi-user)</title>
   <style>
     body { margin:0; background:black; }
     canvas { display:block; margin:auto; background:black; }
@@ -14,88 +14,88 @@
   </style>
 </head>
 <body>
-  <div id="version">v3.6</div>
+  <div id="version">v3.8 (multi-user)</div>
   <canvas id="canvas" width="1024" height="1024"></canvas>
-
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
-    // Anmeldung als Display
+    // melden als Display
     socket.emit("identify", { role: "display", deviceId: null });
 
-    const c  = document.getElementById("canvas"),
-          ctx = c.getContext("2d"),
-          CX  = c.width/2,
-          CY  = c.height/2;
+    const c       = document.getElementById("canvas");
+    const ctx     = c.getContext("2d");
+    const CX      = c.width/2, CY = c.height/2;
+    const MAX_H   = 20, MAX_V = 20;    // statisch oder per Admin-Settings
+    const SMOOTH  = 0.15;              // optional per Admin
 
-    let MAX_H = 20, MAX_V = 20, SMOOTH = 0.15;
-    let calibrated = false, alpha0 = 0, beta0 = 0;
-    let lastRawX = null, lastRawY = null;
-    let smoothX = CX, smoothY = CY;
-    let segments = [], currentColor = "#ff0000";
+    // pro Gerät speichern wir den letzten Punkt
+    const lastPos   = {};   // deviceId → { x, y }
+    const segments  = [];   // alle Linien-Segmente über alle Geräte
 
-    ctx.lineCap = "round";
+    ctx.lineCap  = "round";
     ctx.lineJoin = "round";
 
-    // Admin-Settings empfangen
-    socket.on("updateSettings", ({ maxH, maxV, smooth }) => {
-      if (typeof maxH   === "number") MAX_H   = maxH;
-      if (typeof maxV   === "number") MAX_V   = maxV;
-      if (typeof smooth === "number") SMOOTH  = smooth;
-    });
-
-    // Motion-Daten verarbeiten
-    socket.on("motion", ({ alpha, beta, color, isDrawing }) => {
-      if (typeof alpha!=="number" || typeof beta!=="number") return;
-      if (color) currentColor = color;
-
-      // Kalibrierung beim ersten Zeichnen
-      if (!calibrated && isDrawing) {
-        alpha0 = alpha; beta0 = beta;
-        calibrated = true;
-        lastRawX = CX; lastRawY = CY;
-        smoothX = CX; smoothY = CY;
+    socket.on("motion", ({ alpha, beta, color, isDrawing, deviceId }) => {
+      if (!deviceId) return;
+      // Kalibrierung: wir initialisieren lastPos[deviceId] in der Mitte beim ersten Draw
+      if (!(deviceId in lastPos)) {
+        lastPos[deviceId] = { x: CX, y: CY };
       }
-      if (!calibrated) return;
 
-      // Winkel-Delta mit Wrap
-      let dA = alpha - alpha0;
-      if (dA > 180)  dA -= 360;
-      if (dA < -180) dA += 360;
-      const dB = beta - beta0;
+      // Winkel wrap-around
+      let dA = alpha  - (alpha0Map?.[deviceId] ?? alpha);
+      let dB = beta   - (beta0Map?.[deviceId]  ?? beta);
 
-      // Begrenzen
-      const rA = Math.max(-MAX_H, Math.min(MAX_H, dA));
-      const rB = Math.max(-MAX_V, Math.min(MAX_V, dB));
+      // Wenn das erste Drawing, kalibrieren wir die Nullpunkte
+      if (isDrawing && !alpha0Map) {
+        alpha0Map = alpha0Map || {};
+        beta0Map  = beta0Map  || {};
+        alpha0Map[deviceId] = alpha;
+        beta0Map[deviceId]  = beta;
+        // reset dA/dB
+        dA = 0; dB = 0;
+      }
+      // wrap
+      if (dA>180) dA-=360;
+      if (dA<-180)dA+=360;
 
-      // Mapping (invertiert)
-      const rawX = CX - (rA/MAX_H)*CX;
-      const rawY = CY - (rB/MAX_V)*CY;
+      // clamp
+      dA = Math.max(-MAX_H, Math.min(MAX_H, dA));
+      dB = Math.max(-MAX_V, Math.min(MAX_V, dB));
 
-      // Zeichnen bei isDrawing
-      if (isDrawing && lastRawX !== null) {
+      // map auf Canvas
+      const x = CX - (dA/MAX_H)*CX;
+      const y = CY - (dB/MAX_V)*CY;
+
+      // wenn Zeichnen, füge Segment hinzu
+      if (isDrawing) {
+        const prev = lastPos[deviceId];
         segments.push({
-          x1: lastRawX, y1: lastRawY,
-          x2: rawX,     y2: rawY,
-          color: currentColor
+          x1: prev.x, y1: prev.y,
+          x2: x,     y2: y,
+          color, deviceId
         });
       }
-      lastRawX = rawX;
-      lastRawY = rawY;
+
+      // update lastPos
+      lastPos[deviceId] = { x, y };
     });
 
-    // Clear
     socket.on("clear", () => {
-      segments = [];
+      segments.length = 0;
       ctx.clearRect(0,0,c.width,c.height);
-      calibrated = false;
-      lastRawX = lastRawY = null;
-      smoothX = CX; smoothY = CY;
+      // reset
+      for (let k in lastPos) delete lastPos[k];
+      alpha0Map = {}; beta0Map = {};
     });
 
-    // Render-Loop mit Glättung und pulsierendem Punkt
+    // Hilfskarten für Kalibrier-Nullpunkte
+    let alpha0Map = {}, beta0Map = {};
+
+    // Render-Loop
     function render() {
       ctx.clearRect(0,0,c.width,c.height);
+      // alle Segmente zeichnen
       for (const s of segments) {
         ctx.strokeStyle = s.color;
         ctx.lineWidth   = 6;
@@ -103,15 +103,6 @@
         ctx.moveTo(s.x1, s.y1);
         ctx.lineTo(s.x2, s.y2);
         ctx.stroke();
-      }
-      if (lastRawX !== null) {
-        smoothX += (lastRawX - smoothX) * SMOOTH;
-        smoothY += (lastRawY - smoothY) * SMOOTH;
-        const r = 4 + Math.sin(Date.now()/150)*2;
-        ctx.beginPath();
-        ctx.arc(smoothX, smoothY, r, 0, 2*Math.PI);
-        ctx.fillStyle = currentColor;
-        ctx.fill();
       }
       requestAnimationFrame(render);
     }
