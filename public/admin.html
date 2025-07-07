@@ -1,55 +1,98 @@
-const express = require("express");
-const app     = express();
-const http    = require("http").createServer(app);
-const io      = require("socket.io")(http);
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Admin Panel v3.8</title>
+  <style>
+    body { margin:0; padding:20px; background:#111; color:#fff; font-family:sans-serif; }
+    h1 { margin-top:0; }
+    #status { margin:10px 0; font-weight:bold; }
+    .setting { margin:15px 0; }
+    label { display:inline-block; width:200px; vertical-align:middle; }
+    input[type="number"], input[type="range"] { vertical-align:middle; }
+    #smoothVal { display:inline-block; width:40px; text-align:right; margin-left:8px; }
+    #clear { margin-top:10px; padding:8px 16px; background:#c33; color:#fff; border:none; cursor:pointer; }
+    table { width:100%; margin-top:20px; border-collapse:collapse; }
+    th, td { padding:8px; border:1px solid #444; text-align:left; }
+    th { background:#222; }
+  </style>
+</head>
+<body>
+  <h1>Admin Panel v3.8</h1>
+  <div id="status">
+    Display: <span id="dispState">–</span>
+  </div>
 
-app.use(express.static("public"));
+  <div class="setting">
+    <label for="maxH">Max. Winkel horizontal (°):</label>
+    <input id="maxH" type="number" value="20" min="0" max="180"/>
+  </div>
+  <div class="setting">
+    <label for="maxV">Max. Winkel vertikal (°):</label>
+    <input id="maxV" type="number" value="20" min="0" max="180"/>
+  </div>
+  <div class="setting">
+    <label for="smooth">Glättung (% – 0 = volle Glättung):</label>
+    <input id="smooth" type="range" min="0" max="100" value="20"/>
+    <span id="smoothVal">20 %</span>
+  </div>
 
-// merken, ob gerade eine Display-Instanz verbunden ist
-let displayConnected = false;
+  <button id="clear">Canvas löschen</button>
 
-io.on("connection", socket => {
-  console.log("Client verbunden:", socket.id);
+  <h2>Verbundene Handys</h2>
+  <table>
+    <thead><tr><th>Geräte-ID</th><th>IP-Adresse</th></tr></thead>
+    <tbody id="clientList"></tbody>
+  </table>
 
-  // Identify-Event von Control, Display oder Admin
-  socket.on("identify", info => {
-    if (info.role === "display") {
-      displayConnected = true;
-      // allen Admins Bescheid sagen
-      io.emit("display-status", { connected: true });
-      console.log("Display connected");
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    socket.emit("identify", { role: "admin", deviceId: null });
+
+    const elMaxH     = document.getElementById("maxH");
+    const elMaxV     = document.getElementById("maxV");
+    const elSmooth   = document.getElementById("smooth");
+    const elSmoothVal= document.getElementById("smoothVal");
+    const btnClear   = document.getElementById("clear");
+    const tblBody    = document.getElementById("clientList");
+    const dispState  = document.getElementById("dispState");
+
+    function sendSettings() {
+      const maxH   = parseFloat(elMaxH.value) || 20;
+      const maxV   = parseFloat(elMaxV.value) || 20;
+      // invertierter Slider: 20 % → smooth = 0.80
+      const smooth = 1 - (parseFloat(elSmooth.value) / 100);
+      socket.emit("updateSettings", { maxH, maxV, smooth });
     }
-    if (info.role === "admin") {
-      // direkt den aktuellen Status an den neuen Admin schicken
-      socket.emit("display-status", { connected: displayConnected });
-      console.log("Admin joined, display status sent =", displayConnected);
-    }
-  });
 
-  // Bewegungsdaten von Control weiterreichen
-  socket.on("motion", data => {
-    socket.broadcast.emit("motion", data);
-  });
+    elMaxH.addEventListener("change", sendSettings);
+    elMaxV.addEventListener("change", sendSettings);
+    elSmooth.addEventListener("input", () => {
+      elSmoothVal.textContent = elSmooth.value + " %";
+      sendSettings();
+    });
 
-  // Canvas clear
-  socket.on("clear", () => {
-    io.emit("clear");
-  });
+    btnClear.addEventListener("click", () => {
+      socket.emit("clear");
+    });
 
-  // Admin-Settings verteilen
-  socket.on("admin-settings", settings => {
-    io.emit("updateSettings", settings);
-  });
+    // Initial die Settings senden
+    sendSettings();
 
-  socket.on("disconnect", () => {
-    console.log("Client getrennt:", socket.id);
-    // Wenn das Display die Verbindung verliert, Status zurücksetzen
-    // (ganz einfach: wir gehen davon aus, dass nur EINE Display-Instanz läuft)
-    displayConnected = false;
-    io.emit("display-status", { connected: false });
-    console.log("Display disconnected");
-  });
-});
+    socket.on("client-list", list => {
+      const hasDisp = list.some(c => c.type === "display");
+      dispState.textContent = hasDisp ? "verbunden ✅" : "nicht verbunden ❌";
 
-const PORT = process.env.PORT || 3000;
-http.listen(PORT, () => console.log(`Server läuft auf Port ${PORT}`));
+      const ctrls = list.filter(c => c.type === "control" && c.active);
+      tblBody.innerHTML = "";
+      ctrls.forEach(({ deviceId, ip }) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${deviceId || "–"}</td><td>${ip}</td>`;
+        tblBody.appendChild(tr);
+      });
+    });
+  </script>
+</body>
+</html>
