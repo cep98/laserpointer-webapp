@@ -2,97 +2,83 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Admin Panel v3.8</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Admin-Panel</title>
   <style>
-    body { margin:0; padding:20px; background:#111; color:#fff; font-family:sans-serif; }
-    h1 { margin-top:0; }
-    #status { margin:10px 0; font-weight:bold; }
-    .setting { margin:15px 0; }
-    label { display:inline-block; width:200px; vertical-align:middle; }
-    input[type="number"], input[type="range"] { vertical-align:middle; }
-    #smoothVal { display:inline-block; width:40px; text-align:right; margin-left:8px; }
-    #clear { margin-top:10px; padding:8px 16px; background:#c33; color:#fff; border:none; cursor:pointer; }
-    table { width:100%; margin-top:20px; border-collapse:collapse; }
-    th, td { padding:8px; border:1px solid #444; text-align:left; }
-    th { background:#222; }
+    body {
+      background: #111; color: #eee;
+      font-family: sans-serif; padding: 20px;
+    }
+    label, input {
+      display: block; margin: 10px 0;
+    }
+    input[type=number], input[type=range] {
+      width: 100%; max-width: 300px;
+    }
+    button {
+      padding: 10px 20px; background: red;
+      color: white; border:none; cursor:pointer;
+      font-size: 1rem;
+    }
   </style>
 </head>
 <body>
-  <h1>Admin Panel v3.8</h1>
-  <div id="status">
-    Display: <span id="dispState">–</span>
-  </div>
+  <h1>Admin-Panel</h1>
 
-  <div class="setting">
-    <label for="maxH">Max. Winkel horizontal (°):</label>
-    <input id="maxH" type="number" value="20" min="0" max="180"/>
-  </div>
-  <div class="setting">
-    <label for="maxV">Max. Winkel vertikal (°):</label>
-    <input id="maxV" type="number" value="20" min="0" max="180"/>
-  </div>
-  <div class="setting">
-    <label for="smooth">Glättung (% – 0 = volle Glättung):</label>
-    <input id="smooth" type="range" min="0" max="100" value="20"/>
-    <span id="smoothVal">20 %</span>
-  </div>
+  <label>Max. Winkel horizontal (°):
+    <input type="number" id="horiz" value="20" />
+  </label>
+
+  <label>Max. Winkel vertikal (°):
+    <input type="number" id="vert" value="20" />
+  </label>
+
+  <label>Glättung (%):
+    <input type="range" id="smooth" min="0" max="100" value="15" />
+  </label>
+
+  <label>Minimale Strichstärke (px):
+    <input type="number" id="minW" min="1" max="100" value="5" />
+  </label>
+
+  <label>Maximale Strichstärke (px):
+    <input type="number" id="maxW" min="1" max="100" value="12" />
+  </label>
 
   <button id="clear">Canvas löschen</button>
-
-  <h2>Verbundene Handys</h2>
-  <table>
-    <thead><tr><th>Geräte-ID</th><th>IP-Adresse</th></tr></thead>
-    <tbody id="clientList"></tbody>
-  </table>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
-    socket.emit("identify", { role: "admin", deviceId: null });
-
-    const elMaxH     = document.getElementById("maxH");
-    const elMaxV     = document.getElementById("maxV");
-    const elSmooth   = document.getElementById("smooth");
-    const elSmoothVal= document.getElementById("smoothVal");
-    const btnClear   = document.getElementById("clear");
-    const tblBody    = document.getElementById("clientList");
-    const dispState  = document.getElementById("dispState");
 
     function sendSettings() {
-      const maxH   = parseFloat(elMaxH.value) || 20;
-      const maxV   = parseFloat(elMaxV.value) || 20;
-      // invertierter Slider: 20 % → smooth = 0.80
-      const smooth = 1 - (parseFloat(elSmooth.value) / 100);
-      socket.emit("updateSettings", { maxH, maxV, smooth });
+      const maxAlpha = parseFloat(document.getElementById("horiz").value);
+      const maxBeta  = parseFloat(document.getElementById("vert").value);
+      const smooth   = parseFloat(document.getElementById("smooth").value) / 100;
+      const minW     = parseFloat(document.getElementById("minW").value);
+      const maxW     = parseFloat(document.getElementById("maxW").value);
+
+      socket.emit("admin-settings", {
+        maxH: maxAlpha,
+        maxV: maxBeta,
+        smooth,
+        minW,
+        maxW
+      });
     }
 
-    elMaxH.addEventListener("change", sendSettings);
-    elMaxV.addEventListener("change", sendSettings);
-    elSmooth.addEventListener("input", () => {
-      elSmoothVal.textContent = elSmooth.value + " %";
-      sendSettings();
-    });
+    document.getElementById("horiz").addEventListener("change", sendSettings);
+    document.getElementById("vert").addEventListener ("change", sendSettings);
+    document.getElementById("smooth").addEventListener("input", sendSettings);
+    document.getElementById("minW").addEventListener("change", sendSettings);
+    document.getElementById("maxW").addEventListener("change", sendSettings);
 
-    btnClear.addEventListener("click", () => {
+    document.getElementById("clear").addEventListener("click", () => {
       socket.emit("clear");
     });
 
-    // Initial die Settings senden
+    // einmal initial senden
     sendSettings();
-
-    socket.on("client-list", list => {
-      const hasDisp = list.some(c => c.type === "display");
-      dispState.textContent = hasDisp ? "verbunden ✅" : "nicht verbunden ❌";
-
-      const ctrls = list.filter(c => c.type === "control" && c.active);
-      tblBody.innerHTML = "";
-      ctrls.forEach(({ deviceId, ip }) => {
-        const tr = document.createElement("tr");
-        tr.innerHTML = `<td>${deviceId || "–"}</td><td>${ip}</td>`;
-        tblBody.appendChild(tr);
-      });
-    });
   </script>
 </body>
 </html>
