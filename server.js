@@ -1,62 +1,20 @@
 const express = require("express");
-const app     = express();
-const http    = require("http").createServer(app);
-const io      = require("socket.io")(http);
+const app = express();
+const http = require("http").createServer(app);
+const io = require("socket.io")(http);
 
-// Statische Dateien ausliefern
 app.use(express.static("public"));
 
-// Inaktivitäts-Timeout (5 Sekunden)
-const INACTIVITY_TIMEOUT = 5 * 1000;
-
-// clients: socketId → { ip, type, deviceId, lastMotion }
-const clients = {};
-
-// Funktion zum Senden der aktuellen Client-Liste an alle Admins
-function broadcastClients() {
-  const now = Date.now();
-  const list = Object.entries(clients).map(([socketId, info]) => ({
-    socketId,
-    ip:       info.ip,
-    deviceId: info.deviceId,
-    type:     info.type,
-    // active nur für Control-Clients, die innerhalb des Timeouts zuletzt motion gesendet haben
-    active:   info.type === "control" && (now - info.lastMotion) < INACTIVITY_TIMEOUT
-  }));
-  io.emit("client-list", list);
-}
-
 io.on("connection", socket => {
-  // Client initial registrieren
-  const ip = socket.handshake.address;
-  clients[socket.id] = {
-    ip,
-    type:       null,
-    deviceId:   null,
-    lastMotion: Date.now()
-  };
+  console.log("Client verbunden");
 
-  // Rolle und Geräte-ID setzen
-  socket.on("identify", ({ role, deviceId }) => {
-    if (["control","display","admin"].includes(role)) {
-      clients[socket.id].type     = role;
-      clients[socket.id].deviceId = deviceId || null;
-      broadcastClients();
-    }
+  socket.on("identify", info => {
+    // Hier könnten wir Rolle / deviceId speichern, wenn gewünscht
   });
 
-  // Motion-Event: Zeitstempel aktualisieren und mitsenden
+  // Bewegungs-Events vom Control an alle Displays
   socket.on("motion", data => {
-    if (clients[socket.id]) {
-      clients[socket.id].lastMotion = Date.now();
-      const deviceId = clients[socket.id].deviceId;
-      io.emit("motion", { ...data, deviceId });
-    }
-  });
-
-  // Admin-Einstellungen weiterleiten
-  socket.on("updateSettings", settings => {
-    io.emit("updateSettings", settings);
+    socket.broadcast.emit("motion", data);
   });
 
   // Canvas löschen
@@ -64,17 +22,15 @@ io.on("connection", socket => {
     io.emit("clear");
   });
 
-  // Trennung: Client entfernen
+  // Admin-Settings verteilen
+  socket.on("admin-settings", settings => {
+    io.emit("updateSettings", settings);
+  });
+
   socket.on("disconnect", () => {
-    delete clients[socket.id];
-    broadcastClients();
+    console.log("Client getrennt");
   });
 });
 
-// Periodisch jede Sekunde die Client-Liste senden
-setInterval(broadcastClients, 1000);
-
 const PORT = process.env.PORT || 3000;
-http.listen(PORT, () => {
-  console.log(`Server läuft auf Port ${PORT}`);
-});
+http.listen(PORT, () => console.log(`Server läuft auf Port ${PORT}`));
