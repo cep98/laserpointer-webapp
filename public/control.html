@@ -3,84 +3,172 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Laserpointer Control v3.6</title>
+  <title>Laserpointer Control v3.8</title>
   <style>
-    *, button { 
-      -webkit-touch-callout: none; user-select: none; 
+    /* Auswahl & Callouts unterdrücken */
+    *, button {
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      user-select: none;
     }
-    body { margin:0; background:black; color:white; font-family:sans-serif; }
-    .version { position:absolute; top:10px; right:10px; opacity:0.6; }
-    #colors {
-      position:absolute; top:10px; left:10px;
-      display:flex; flex-wrap:wrap; gap:6px; width:calc(100% - 20px);
+
+    body {
+      margin: 0;
+      padding: 20px;
+      background: #000;
+      color: #fff;
+      font-family: sans-serif;
     }
-    .color-button {
-      width:30px; height:30px; border-radius:50%; border:none; cursor:pointer;
+
+    .version {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      font-size: 14px;
+      opacity: 0.7;
     }
+
+    .setting {
+      margin: 15px 0;
+    }
+
+    label {
+      display: inline-block;
+      width: 120px;
+    }
+
+    input[type="range"] {
+      vertical-align: middle;
+      width: 60%;
+    }
+
+    .value {
+      display: inline-block;
+      width: 50px;
+      text-align: right;
+      margin-left: 8px;
+    }
+
+    #preview {
+      display: inline-block;
+      width: 40px;
+      height: 40px;
+      vertical-align: middle;
+      margin-left: 20px;
+      border: 2px solid #fff;
+      box-sizing: border-box;
+    }
+
     #laserBtn {
-      position:absolute; bottom:33%; left:50%; transform:translateX(-50%);
-      width:80px; height:80px; border-radius:50%; background:white; border:none;
-      touch-action:none;
+      position: absolute;
+      bottom: 30%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      background: #fff;
+      border: none;
+      touch-action: none;
     }
   </style>
 </head>
 <body>
-  <div class="version">v3.6</div>
-  <div id="colors"></div>
+  <div class="version">v3.8</div>
+
+  <div class="setting">
+    <label for="hue">Farbton:</label>
+    <input id="hue" type="range" min="0" max="360" value="0"/>
+    <span id="hueVal" class="value">0°</span>
+  </div>
+
+  <div class="setting">
+    <label for="intensity">Intensität:</label>
+    <input id="intensity" type="range" min="0" max="100" value="50"/>
+    <span id="intVal" class="value">50 %</span>
+    <div id="preview"></div>
+  </div>
+
   <button id="laserBtn"></button>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
-    // Erzeuge oder lese eine persistente Geräte-ID
+    // persistent deviceId
     let deviceId = localStorage.getItem("deviceId");
     if (!deviceId) {
       deviceId = crypto.randomUUID();
       localStorage.setItem("deviceId", deviceId);
     }
-    // Melde uns an
     socket.emit("identify", { role: "control", deviceId });
 
-    let isDrawing = false, color = "#ff0000";
+    // Elemente
+    const hueSlider      = document.getElementById("hue");
+    const hueVal         = document.getElementById("hueVal");
+    const intSlider      = document.getElementById("intensity");
+    const intVal         = document.getElementById("intVal");
+    const preview        = document.getElementById("preview");
+    const laserBtn       = document.getElementById("laserBtn");
 
-    const cols = [
-      "#ff0000","#ff8000","#ffff00","#80ff00",
-      "#00ff00","#00ff80","#00ffff","#0080ff",
-      "#0000ff","#8000ff","#ff00ff","#ff0080",
-      "#ffffff","#888888","#000000","#ff0088"
-    ];
-    const container = document.getElementById("colors");
-    cols.forEach(c => {
-      const b = document.createElement("button");
-      b.className = "color-button";
-      b.style.background = c;
-      b.onclick = () => color = c;
-      container.appendChild(b);
+    let isDrawing = false;
+    let hue        = parseInt(hueSlider.value, 10);
+    let intensity  = parseInt(intSlider.value, 10);
+    let colorHSL   = `hsl(${hue},100%,${intensity}%)`;
+
+    // Update-Funktion
+    function updateColor() {
+      hue       = parseInt(hueSlider.value, 10);
+      intensity = parseInt(intSlider.value, 10);
+      hueVal.textContent = hue + "°";
+      intVal.textContent = intensity + " %";
+      colorHSL = `hsl(${hue},100%,${intensity}%)`;
+      preview.style.background = colorHSL;
+    }
+
+    hueSlider.addEventListener("input", updateColor);
+    intSlider.addEventListener("input", updateColor);
+    updateColor();
+
+    // Laserbutton
+    laserBtn.addEventListener("touchstart", e => {
+      e.preventDefault();
+      isDrawing = true;
+    });
+    laserBtn.addEventListener("touchend", e => {
+      e.preventDefault();
+      isDrawing = false;
     });
 
-    const laser = document.getElementById("laserBtn");
-    laser.addEventListener("touchstart", e => { e.preventDefault(); isDrawing = true; });
-    laser.addEventListener("touchend",   e => { e.preventDefault(); isDrawing = false; });
-
+    // Orientation senden
     function sendOri(e) {
-      if (e.alpha==null||e.beta==null) return;
+      if (e.alpha == null || e.beta == null) return;
       socket.emit("motion", {
-        alpha: e.alpha, beta: e.beta,
-        color, isDrawing
+        alpha:      e.alpha,
+        beta:       e.beta,
+        color:      colorHSL,
+        isDrawing
       });
     }
 
-    function init() {
-      if (DeviceOrientationEvent.requestPermission) {
+    // iOS-Permission + Listener
+    function initGyro() {
+      if (typeof DeviceOrientationEvent.requestPermission === "function") {
         DeviceOrientationEvent.requestPermission()
-          .then(res=>{ if(res==="granted") window.addEventListener("deviceorientation", sendOri); })
+          .then(res => {
+            if (res === "granted") {
+              window.addEventListener("deviceorientation", sendOri);
+            }
+          })
           .catch(console.error);
       } else {
         window.addEventListener("deviceorientation", sendOri);
       }
     }
-    document.body.addEventListener("touchstart", init, { once:true });
+    document.body.addEventListener("touchstart", initGyro, { once: true });
 
+    // Kontextmenü unterdrücken
     document.addEventListener("contextmenu", e => e.preventDefault());
   </script>
 </body>
