@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Admin Panel</title>
   <style>
     body { background:#111; color:#fff; font-family:sans-serif; margin:0; padding:20px; }
@@ -10,13 +10,15 @@
     label { display:block; margin:10px 0 5px; }
     input { width:80px; padding:5px; margin-right:20px; }
     button { padding:8px 16px; margin:10px 5px 0 0; }
-    table { width:100%; margin-top:20px; border-collapse:collapse; }
+    #status { margin:10px 0; font-weight:bold; }
+    table { width:100%; margin-top:10px; border-collapse:collapse; }
     th, td { padding:8px; border:1px solid #444; text-align:left; }
     th { background:#222; }
   </style>
 </head>
 <body>
   <h1>Admin Panel</h1>
+  <div id="status">Display: <span id="dispState">–</span></div>
 
   <div>
     <label>Max Winkel horizontal (°):
@@ -32,7 +34,7 @@
     <button id="clear">Canvas löschen</button>
   </div>
 
-  <h2>Verbunden Clients</h2>
+  <h2>Verbundene Handys</h2>
   <table>
     <thead><tr><th>Socket-ID</th><th>IP-Adresse</th></tr></thead>
     <tbody id="clientList"></tbody>
@@ -42,15 +44,18 @@
   <script>
     const socket = io();
 
-    // DOM-Elemente
-    const elMaxH    = document.getElementById("maxH");
-    const elMaxV    = document.getElementById("maxV");
-    const elSmooth  = document.getElementById("smooth");
-    const btnApply  = document.getElementById("apply");
-    const btnClear  = document.getElementById("clear");
-    const tblBody   = document.getElementById("clientList");
+    // Identifizieren als Admin, damit wir uns nicht selbst sehen
+    socket.emit("identify", "admin");
 
-    // Sende Settings
+    const elMaxH   = document.getElementById("maxH");
+    const elMaxV   = document.getElementById("maxV");
+    const elSmooth = document.getElementById("smooth");
+    const btnApply = document.getElementById("apply");
+    const btnClear = document.getElementById("clear");
+    const tblBody  = document.getElementById("clientList");
+    const dispState= document.getElementById("dispState");
+
+    // Einstellungen senden
     btnApply.addEventListener("click", () => {
       const maxH   = parseFloat(elMaxH.value)   || 20;
       const maxV   = parseFloat(elMaxV.value)   || 20;
@@ -58,18 +63,24 @@
       socket.emit("updateSettings", { maxH, maxV, smooth });
     });
 
-    // Sende clear
+    // Canvas löschen
     btnClear.addEventListener("click", () => {
       socket.emit("clear");
     });
 
-    // Empfange Client-Liste
+    // Aktualisierte Client-Liste vom Server
     socket.on("client-list", list => {
+      // Display-Status
+      const hasDisplay = list.some(c => c.type === "display");
+      dispState.textContent = hasDisplay ? "verbunden ✅" : "nicht verbunden ❌";
+
+      // Nur Controls (Handys) anzeigen
+      const controls = list.filter(c => c.type === "control");
       tblBody.innerHTML = "";
-      list.forEach(({id, ip}) => {
-        const row = document.createElement("tr");
-        row.innerHTML = `<td>${id}</td><td>${ip}</td>`;
-        tblBody.appendChild(row);
+      controls.forEach(({id, ip}) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${id}</td><td>${ip}</td>`;
+        tblBody.appendChild(tr);
       });
     });
   </script>
