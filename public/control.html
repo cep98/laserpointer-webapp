@@ -2,23 +2,33 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>Laserpointer Control v3.0</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Laserpointer Control v3.4</title>
   <style>
-    body { margin:0; background:#000; color:#fff; font-family:sans-serif; text-align:center; }
+    body { margin:0; background:black; color:white; font-family:sans-serif; }
     .version { position:absolute; top:10px; right:10px; font-size:14px; opacity:0.6; }
-    #colors { display:flex; flex-wrap:wrap; justify-content:center; margin-top:20px; gap:8px; }
+    #colors {
+      position:absolute; top:10px; left:10px;
+      display:flex; flex-wrap:wrap; gap:6px; width:calc(100% - 20px);
+    }
     .color-button {
       width:30px; height:30px; border-radius:50%; border:none; cursor:pointer;
     }
     #laserBtn {
-      width:80px; height:80px; border-radius:50%; background:#fff;
-      margin:30px auto; border:none; touch-action:none;
+      position:absolute;
+      bottom:33%;
+      left:50%;
+      transform:translateX(-50%);
+      width:80px; height:80px;
+      border-radius:50%;
+      background:white;
+      border:none;
+      touch-action:none;
     }
   </style>
 </head>
 <body>
-  <div class="version">v3.0</div>
+  <div class="version">v3.4</div>
   <div id="colors"></div>
   <button id="laserBtn"></button>
 
@@ -27,20 +37,22 @@
     const socket = io();
     let isDrawing = false;
     let color = "#ff0000";
-    const maxAngle = 20;
 
-    // Farbbuttons
-    const cols = ["#ff0000","#00ff00","#0000ff","#ffff00","#ff00ff","#00ffff","#ffffff","#ff8800","#888888","#00ff88"];
-    const colorsDiv = document.getElementById("colors");
-    cols.forEach(c => {
-      const b = document.createElement("button");
-      b.className = "color-button";
-      b.style.background = c;
-      b.onclick = () => color = c;
-      colorsDiv.appendChild(b);
-    });
+    const cols = [
+      "#ff0000","#ff8000","#ffff00","#80ff00",
+      "#00ff00","#00ff80","#00ffff","#0080ff",
+      "#0000ff","#8000ff","#ff00ff","#ff0080",
+      "#ffffff","#888888","#000000","#ff0088"
+    ];
+    const container = document.getElementById("colors");
+    for (const c of cols) {
+      const btn = document.createElement("button");
+      btn.className = "color-button";
+      btn.style.background = c;
+      btn.onclick = () => color = c;
+      container.appendChild(btn);
+    }
 
-    // Laserbutton
     const laser = document.getElementById("laserBtn");
     laser.addEventListener("touchstart", e => {
       e.preventDefault();
@@ -51,31 +63,25 @@
       isDrawing = false;
     });
 
-    // Orientation senden
     function sendOri(e) {
       if (e.alpha == null || e.beta == null) return;
       socket.emit("motion", {
         alpha: e.alpha,
-        beta:  e.beta,
+        beta: e.beta,
         color,
         isDrawing
       });
     }
 
-    // iOS-Permission + Listener
     function init() {
       if (typeof DeviceOrientationEvent.requestPermission === "function") {
         DeviceOrientationEvent.requestPermission()
-          .then(res => {
-            if (res === "granted")
-              window.addEventListener("deviceorientation", sendOri);
-          })
+          .then(res => { if (res === "granted") window.addEventListener("deviceorientation", sendOri); })
           .catch(console.error);
       } else {
         window.addEventListener("deviceorientation", sendOri);
       }
     }
-    // beim ersten Touch anfordern
     document.body.addEventListener("touchstart", init, { once: true });
   </script>
 </body>
