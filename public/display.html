@@ -1,20 +1,15 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Laserpointer Display v3.5</title>
   <style>
-    body { margin: 0; background: black; }
-    canvas { display: block; margin: auto; background: black; }
+    body { margin:0; background:black; }
+    canvas { display:block; margin:auto; background:black; }
     #version {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      color: white;
-      font-family: sans-serif;
-      font-size: 14px;
-      opacity: 0.6;
+      position:absolute; top:10px; left:10px;
+      color:white; font-family:sans-serif; font-size:14px; opacity:0.6;
     }
   </style>
 </head>
@@ -25,115 +20,107 @@
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
+    // Rolle anmelden
+    socket.emit("identify", "display");
+
     const c = document.getElementById("canvas");
     const ctx = c.getContext("2d");
+    const CX = c.width/2, CY = c.height/2;
 
-    // Default-Werte, werden per Admin überschrieben
-    let MAX_H = 20, MAX_V = 20;
-    let SMOOTH = 0.15;
-    const CX = c.width / 2, CY = c.height / 2;
+    // Default-Werte (Admin überschreibt)
+    let MAX_H = 20, MAX_V = 20, SMOOTH = 0.15;
 
     // Zustände
-    let calibrated = false, alpha0 = 0, beta0 = 0;
-    let lastRawX = null, lastRawY = null;
-    let smoothX = CX, smoothY = CY;
+    let calibrated = false, alpha0=0, beta0=0;
+    let lastRawX=null, lastRawY=null;
+    let smoothX=CX, smoothY=CY;
     let segments = [];
     let currentColor = "#ff0000";
 
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
 
-    // Admin-Einstellungen empfangen
+    // Admin-Einstellungen
     socket.on("updateSettings", ({ maxH, maxV, smooth }) => {
-      if (typeof maxH === "number") MAX_H    = maxH;
-      if (typeof maxV === "number") MAX_V    = maxV;
+      if (typeof maxH === "number") MAX_H = maxH;
+      if (typeof maxV === "number") MAX_V = maxV;
       if (typeof smooth === "number") SMOOTH = smooth;
-      console.log("Settings:", { MAX_H, MAX_V, SMOOTH });
     });
 
-    // Gyro-Daten empfangen
+    // Motion-Daten empfangen
     socket.on("motion", ({ alpha, beta, color, isDrawing }) => {
-      if (typeof alpha !== "number" || typeof beta !== "number") return;
+      if (typeof alpha!=="number" || typeof beta!=="number") return;
       if (color) currentColor = color;
 
-      // Kalibrierung beim ersten Zeichnen
+      // Kalibrieren beim ersten Zeichnen
       if (!calibrated && isDrawing) {
         alpha0 = alpha;
         beta0  = beta;
         calibrated = true;
-        // Startpunkt mittig
-        lastRawX = CX;
-        lastRawY = CY;
-        smoothX  = CX;
-        smoothY  = CY;
+        lastRawX = CX; lastRawY = CY;
+        smoothX = CX; smoothY = CY;
       }
       if (!calibrated) return;
 
-      // Relative Winkel (mit Wrap-Around)
+      // Winkel-Delta mit Wrap
       let dA = alpha - alpha0;
-      if (dA > 180) dA -= 360;
-      if (dA < -180) dA += 360;
+      if (dA>180) dA-=360;
+      if (dA<-180) dA+=360;
       const dB = beta - beta0;
 
       // Begrenzen
       const rA = Math.max(-MAX_H, Math.min(MAX_H, dA));
       const rB = Math.max(-MAX_V, Math.min(MAX_V, dB));
 
-      // Mapping auf Canvas (invertiert, damit Neigen nach rechts → Punkt nach rechts läuft)
-      const rawX = CX - (rA / MAX_H) * CX;
-      const rawY = CY - (rB / MAX_V) * CY;
+      // Mapping (invertiert)
+      const rawX = CX - (rA/MAX_H)*CX;
+      const rawY = CY - (rB/MAX_V)*CY;
 
-      // Linien zeichnen, wenn aktiv
-      if (isDrawing) {
-        if (lastRawX !== null && lastRawY !== null) {
-          segments.push({
-            x1: lastRawX,
-            y1: lastRawY,
-            x2: rawX,
-            y2: rawY,
-            color: currentColor
-          });
-        }
+      // Linie zeichnen
+      if (isDrawing && lastRawX!==null) {
+        segments.push({
+          x1:lastRawX, y1:lastRawY,
+          x2:rawX,     y2:rawY,
+          color:currentColor
+        });
       }
 
-      // Immer aktualisieren, auch für den Punkt
       lastRawX = rawX;
       lastRawY = rawY;
     });
 
-    // Canvas löschen
+    // Clear
     socket.on("clear", () => {
       segments = [];
-      ctx.clearRect(0, 0, c.width, c.height);
+      ctx.clearRect(0,0,c.width,c.height);
       calibrated = false;
-      lastRawX = lastRawY = null;
-      smoothX = CX;
-      smoothY = CY;
+      lastRawX=lastRawY=null;
+      smoothX=CX; smoothY=CY;
     });
 
     // Render-Loop
     function render() {
-      ctx.clearRect(0, 0, c.width, c.height);
+      ctx.clearRect(0,0,c.width,c.height);
 
-      // Gezeichnete Linien
-      for (const s of segments) {
+      // gezeichnete Linien
+      segments.forEach(s=>{
         ctx.strokeStyle = s.color;
         ctx.lineWidth   = 6;
         ctx.beginPath();
-        ctx.moveTo(s.x1, s.y1);
-        ctx.lineTo(s.x2, s.y2);
+        ctx.moveTo(s.x1,s.y1);
+        ctx.lineTo(s.x2,s.y2);
         ctx.stroke();
-      }
+      });
 
       // Punkt-Glättung
       if (lastRawX !== null) {
         smoothX += (lastRawX - smoothX) * SMOOTH;
         smoothY += (lastRawY - smoothY) * SMOOTH;
 
-        // Pulsierender Punkt
-        const r = 4 + Math.sin(Date.now() / 150) * 2;
+        // pulsierender Punkt
+        const r = 4 + Math.sin(Date.now()/150)*2;
         ctx.beginPath();
-        ctx.arc(smoothX, smoothY, r, 0, 2 * Math.PI);
+        ctx.arc(smoothX, smoothY, r, 0, 2*Math.PI);
         ctx.fillStyle = currentColor;
         ctx.fill();
       }
