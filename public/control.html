@@ -5,54 +5,33 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Laserpointer Control v3.5</title>
   <style>
-    /* Überschreiben der iOS-/Browser-Selection und Callouts */
+    /* Keine Touch-Selection oder Callouts */
     *, button {
-      -webkit-touch-callout: none; /* iOS Kontexmenü */
-      -webkit-user-select: none;   /* Safari */
-      -moz-user-select: none;      /* Firefox */
-      -ms-user-select: none;       /* IE10+ */
-      user-select: none;           /* Standard */
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      user-select: none;
     }
-    body {
-      margin: 0;
-      background: #000;
-      color: #fff;
-      font-family: sans-serif;
-    }
-    .version {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      font-size: 14px;
-      opacity: 0.6;
-    }
+    body { margin:0; background:black; color:white; font-family:sans-serif; }
+    .version { position:absolute; top:10px; right:10px; font-size:14px; opacity:0.6; }
     #colors {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      width: calc(100% - 20px);
+      position:absolute; top:10px; left:10px;
+      display:flex; flex-wrap:wrap; gap:6px; width:calc(100% - 20px);
     }
     .color-button {
-      width: 30px;
-      height: 30px;
-      border-radius: 50%;
-      border: none;
-      cursor: pointer;
+      width:30px; height:30px; border-radius:50%; border:none; cursor:pointer;
     }
     #laserBtn {
-      position: absolute;
-      bottom: 33%;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 80px;
-      height: 80px;
-      border-radius: 50%;
-      background: white;
-      border: none;
-      touch-action: none;
+      position:absolute;
+      bottom:33%;
+      left:50%;
+      transform:translateX(-50%);
+      width:80px; height:80px;
+      border-radius:50%;
+      background:white;
+      border:none;
+      touch-action:none;
     }
   </style>
 </head>
@@ -64,6 +43,9 @@
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
+    // Rolle anmelden
+    socket.emit("identify", "control");
+
     let isDrawing = false;
     let color = "#ff0000";
 
@@ -74,18 +56,17 @@
       "#0000ff","#8000ff","#ff00ff","#ff0080",
       "#ffffff","#888888","#000000","#ff0088"
     ];
-
-    // Farbpalette aufbauen
+    // Farb-Palette aufbauen
     const container = document.getElementById("colors");
-    for (const c of cols) {
-      const btn = document.createElement("button");
-      btn.className = "color-button";
-      btn.style.background = c;
-      btn.onclick = () => color = c;
-      container.appendChild(btn);
-    }
+    cols.forEach(c => {
+      const b = document.createElement("button");
+      b.className = "color-button";
+      b.style.background = c;
+      b.onclick = () => { color = c; };
+      container.appendChild(b);
+    });
 
-    // Laserbutton-Events
+    // Laserbutton Touch-Events
     const laser = document.getElementById("laserBtn");
     laser.addEventListener("touchstart", e => {
       e.preventDefault();
@@ -96,7 +77,7 @@
       isDrawing = false;
     });
 
-    // Gyro-Daten senden
+    // Orientation senden
     function sendOri(e) {
       if (e.alpha == null || e.beta == null) return;
       socket.emit("motion", {
@@ -107,12 +88,14 @@
       });
     }
 
-    // iOS-Permission + Listener
+    // iOS Permission + Listener
     function init() {
       if (typeof DeviceOrientationEvent.requestPermission === "function") {
         DeviceOrientationEvent.requestPermission()
           .then(res => {
-            if (res === "granted") window.addEventListener("deviceorientation", sendOri);
+            if (res === "granted") {
+              window.addEventListener("deviceorientation", sendOri);
+            }
           })
           .catch(console.error);
       } else {
@@ -121,7 +104,7 @@
     }
     document.body.addEventListener("touchstart", init, { once: true });
 
-    // Kontextmenü (z.B. „Kopieren“) unterdrücken
+    // Kontextmenü unterdrücken
     document.addEventListener("contextmenu", e => e.preventDefault());
   </script>
 </body>
