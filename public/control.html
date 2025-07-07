@@ -1,119 +1,38 @@
-
 <!DOCTYPE html>
 <html lang="de">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Control v3.2</title>
+  <title>Display</title>
   <style>
-    body {
+    html, body {
       margin: 0;
-      background: #000;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      color: white;
-      font-family: sans-serif;
+      overflow: hidden;
+      background: black;
     }
-    .version {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      font-size: 14px;
-    }
-    .color-buttons {
-      margin: 10px;
-    }
-    .color-button {
-      width: 30px;
-      height: 30px;
-      border-radius: 50%;
-      margin: 5px;
-      border: none;
-    }
-    #laserBtn {
-      width: 80px;
-      height: 80px;
-      border-radius: 50%;
-      background: white;
-      margin-top: 20px;
-      border: none;
-      touch-action: none;
+    canvas {
+      display: block;
+      background: black;
     }
   </style>
 </head>
 <body>
-  <div class="version">v3.2</div>
-  <div class="color-buttons">
-    <button class="color-button" style="background:red" data-color="red"></button>
-    <button class="color-button" style="background:lime" data-color="lime"></button>
-    <button class="color-button" style="background:blue" data-color="blue"></button>
-    <button class="color-button" style="background:yellow" data-color="yellow"></button>
-    <button class="color-button" style="background:magenta" data-color="magenta"></button>
-    <button class="color-button" style="background:cyan" data-color="cyan"></button>
-    <button class="color-button" style="background:orange" data-color="orange"></button>
-    <button class="color-button" style="background:white" data-color="white"></button>
-    <button class="color-button" style="background:gray" data-color="gray"></button>
-    <button class="color-button" style="background:pink" data-color="pink"></button>
-  </div>
-  <button id="laserBtn"></button>
-
+  <canvas id="canvas" width="1024" height="1024"></canvas>
   <script src="/socket.io/socket.io.js"></script>
   <script>
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
     const socket = io();
-    let currentColor = "red";
-    let isDrawing = false;
-    let permissionGranted = false;
 
-    // iOS-Permission
-    function requestPermissionIfNeeded() {
-      if (
-        typeof DeviceOrientationEvent !== "undefined" &&
-        typeof DeviceOrientationEvent.requestPermission === "function"
-      ) {
-        DeviceOrientationEvent.requestPermission()
-          .then(response => {
-            if (response === "granted") {
-              permissionGranted = true;
-              window.addEventListener("deviceorientation", handleOrientation);
-            }
-          })
-          .catch(console.error);
-      } else {
-        // Nicht iOS
-        window.addEventListener("deviceorientation", handleOrientation);
-      }
-    }
-
-    function handleOrientation(e) {
-      if (!permissionGranted && typeof DeviceOrientationEvent.requestPermission === "function") return;
-
-      socket.emit("motion", {
-        alpha: e.alpha,
-        beta: e.beta,
-        color: currentColor,
-        isDrawing: isDrawing
-      });
-    }
-
-    // Farben auswählen
-    document.querySelectorAll(".color-button").forEach(btn => {
-      btn.addEventListener("click", () => {
-        currentColor = btn.getAttribute("data-color");
-      });
+    socket.on("draw", data => {
+      ctx.fillStyle = data.color;
+      ctx.beginPath();
+      ctx.arc(data.x, data.y, 5, 0, Math.PI * 2);
+      ctx.fill();
     });
 
-    const laserBtn = document.getElementById("laserBtn");
-    laserBtn.addEventListener("touchstart", e => {
-      e.preventDefault();
-      isDrawing = true;
+    socket.on("clear", () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
     });
-    laserBtn.addEventListener("touchend", e => {
-      e.preventDefault();
-      isDrawing = false;
-    });
-
-    document.body.addEventListener("touchstart", requestPermissionIfNeeded, { once: true });
   </script>
 </body>
 </html>
