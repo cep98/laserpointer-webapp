@@ -3,18 +3,18 @@ const app     = express();
 const http    = require("http").createServer(app);
 const io      = require("socket.io")(http);
 
-// Statisch ausliefern
+// Statische Dateien ausliefern
 app.use(express.static("public"));
 
-// Timeout für Inaktivität (in ms)
-const TIMEOUT = 15000;
+// Inaktivitäts-Timeout in Millisekunden (5 Sekunden)
+const INACTIVITY_TIMEOUT = 5 * 1000;
 
-// Clients: socketId → { ip, type, deviceId, lastMotion }
+// clients: socketId → { ip, type, deviceId, lastMotion }
 const clients = {};
 
 io.on("connection", socket => {
   const ip = socket.handshake.address;
-  clients[socket.id] = { ip, type: null, deviceId: null, lastMotion: 0 };
+  clients[socket.id] = { ip, type: null, deviceId: null, lastMotion: Date.now() };
 
   // Rollen- und Geräte-ID setzen
   socket.on("identify", ({ role, deviceId }) => {
@@ -25,7 +25,7 @@ io.on("connection", socket => {
     }
   });
 
-  // Motion-Ereignis: timestamp aktualisieren und weiterleiten
+  // Motion-Event: Zeitstempel aktualisieren und weiterleiten
   socket.on("motion", data => {
     if (clients[socket.id]) {
       clients[socket.id].lastMotion = Date.now();
@@ -34,35 +34,36 @@ io.on("connection", socket => {
     broadcastClients();
   });
 
-  // Settings aus Admin verteilen
-  socket.on("updateSettings", s => {
-    io.emit("updateSettings", s);
+  // Admin-Einstellungen weiterleiten
+  socket.on("updateSettings", settings => {
+    io.emit("updateSettings", settings);
   });
 
-  // Clear
+  // Canvas löschen
   socket.on("clear", () => {
     io.emit("clear");
   });
 
-  // Cleanup bei Trennung
+  // Verbindung beenden
   socket.on("disconnect", () => {
     delete clients[socket.id];
     broadcastClients();
   });
 
-  // Sende die Liste aller Clients mit Active-Flag
+  // Sendet Client-Liste mit Active-Flag
   function broadcastClients() {
     const now = Date.now();
     const list = Object.entries(clients).map(([id, info]) => ({
-      socketId:    id,
-      ip:          info.ip,
-      deviceId:    info.deviceId,
-      type:        info.type,
-      active:      info.type === "control" && (now - info.lastMotion) < TIMEOUT
+      socketId: id,
+      ip:       info.ip,
+      deviceId: info.deviceId,
+      type:     info.type,
+      // active, wenn Control und innerhalb des Timeouts zuletzt motion gesendet
+      active:   info.type === "control" && (now - info.lastMotion) < INACTIVITY_TIMEOUT
     }));
     io.emit("client-list", list);
   }
 });
 
-const PORT = process.env.PORT||3000;
+const PORT = process.env.PORT || 3000;
 http.listen(PORT, () => console.log(`Server läuft auf Port ${PORT}`));
