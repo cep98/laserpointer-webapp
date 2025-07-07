@@ -1,61 +1,77 @@
-
 <!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Admin Panel</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    body {
-      font-family: sans-serif;
-      background: #111;
-      color: white;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 40px;
-    }
-    label {
-      margin-top: 20px;
-    }
-    input {
-      font-size: 16px;
-      margin-left: 10px;
-      width: 60px;
-    }
-    button {
-      margin-top: 30px;
-      padding: 10px 20px;
-      font-size: 16px;
-    }
+    body { background:#111; color:#fff; font-family:sans-serif; margin:0; padding:20px; }
+    h1 { margin-top:0; }
+    label { display:block; margin:10px 0 5px; }
+    input { width:80px; padding:5px; margin-right:20px; }
+    button { padding:8px 16px; margin:10px 5px 0 0; }
+    table { width:100%; margin-top:20px; border-collapse:collapse; }
+    th, td { padding:8px; border:1px solid #444; text-align:left; }
+    th { background:#222; }
   </style>
 </head>
 <body>
-  <h2>Admin Panel</h2>
-  <label>
-    Max Winkel horizontal:
-    <input id="maxHorizontal" type="number" value="20">
-  </label>
-  <label>
-    Max Winkel vertikal:
-    <input id="maxVertical" type="number" value="20">
-  </label>
-  <button onclick="sendSettings()">Senden</button>
-  <button onclick="clearCanvas()">Canvas löschen</button>
+  <h1>Admin Panel</h1>
+
+  <div>
+    <label>Max Winkel horizontal (°):
+      <input type="number" id="maxH" value="20">
+    </label>
+    <label>Max Winkel vertikal (°):
+      <input type="number" id="maxV" value="20">
+    </label>
+    <label>Glättungs-Faktor (0–1):
+      <input type="number" step="0.01" id="smooth" value="0.15">
+    </label>
+    <button id="apply">Einstellungen übernehmen</button>
+    <button id="clear">Canvas löschen</button>
+  </div>
+
+  <h2>Verbunden Clients</h2>
+  <table>
+    <thead><tr><th>Socket-ID</th><th>IP-Adresse</th></tr></thead>
+    <tbody id="clientList"></tbody>
+  </table>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
 
-    function sendSettings() {
-      const h = parseFloat(document.getElementById("maxHorizontal").value);
-      const v = parseFloat(document.getElementById("maxVertical").value);
-      socket.emit("updateAngles", { maxH: h, maxV: v });
-    }
+    // DOM-Elemente
+    const elMaxH    = document.getElementById("maxH");
+    const elMaxV    = document.getElementById("maxV");
+    const elSmooth  = document.getElementById("smooth");
+    const btnApply  = document.getElementById("apply");
+    const btnClear  = document.getElementById("clear");
+    const tblBody   = document.getElementById("clientList");
 
-    function clearCanvas() {
+    // Sende Settings
+    btnApply.addEventListener("click", () => {
+      const maxH   = parseFloat(elMaxH.value)   || 20;
+      const maxV   = parseFloat(elMaxV.value)   || 20;
+      const smooth = parseFloat(elSmooth.value) || 0.15;
+      socket.emit("updateSettings", { maxH, maxV, smooth });
+    });
+
+    // Sende clear
+    btnClear.addEventListener("click", () => {
       socket.emit("clear");
-    }
+    });
+
+    // Empfange Client-Liste
+    socket.on("client-list", list => {
+      tblBody.innerHTML = "";
+      list.forEach(({id, ip}) => {
+        const row = document.createElement("tr");
+        row.innerHTML = `<td>${id}</td><td>${ip}</td>`;
+        tblBody.appendChild(row);
+      });
+    });
   </script>
 </body>
 </html>
