@@ -3,17 +3,18 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Laserpointer Control v3.14</title>
+  <title>Laserpointer Control v3.15</title>
   <style>
-    /* Keine Auswahl/Callout */
+    /* Keine Auswahl/Callouts */
     *, button {
       -webkit-touch-callout: none;
       -webkit-user-select: none;
       user-select: none;
     }
+
     body {
       margin: 0;
-      padding: 20px;
+      padding: 20px 20px 140px; /* extra bottom-Padding, damit Brushes nie verdeckt werden */
       background: #000;
       color: #fff;
       font-family: sans-serif;
@@ -24,6 +25,7 @@
       box-sizing: border-box;
       position: relative;
     }
+
     .version {
       position: absolute;
       top: 10px;
@@ -31,6 +33,7 @@
       font-size: 14px;
       opacity: 0.7;
     }
+
     #controls {
       width: 100%;
       max-width: 400px;
@@ -39,6 +42,7 @@
       gap: 20px;
       margin-top: 40px;
     }
+
     .slider-group {
       display: flex;
       align-items: center;
@@ -48,7 +52,7 @@
       flex: 1;
       height: 20px;
       border-radius: 10px;
-      background: transparent; /* wird per JS gesetzt */
+      background: transparent;
       cursor: pointer;
       -webkit-appearance: none;
     }
@@ -74,28 +78,32 @@
       border: 1px solid #888;
       border-radius: 50%;
     }
+
     .value {
       width: 50px;
       text-align: right;
       font-size: 1rem;
     }
+
     #preview {
       width: 40px; height: 40px;
       border: 2px solid #fff;
       box-sizing: border-box;
       background: hsl(0,100%,50%);
     }
-    /* Pinsel ganz unten */
+
+    /* Pinsel-Icons weiter oben, damit sie über der Adressleiste bleiben */
     #brushes {
       position: absolute;
-      bottom: 20px;
+      bottom: 100px;  /* war 20px, jetzt höher gesetzt */
       left: 50%;
       transform: translateX(-50%);
       display: flex;
       gap: 20px;
     }
     .brush {
-      width: 50px; height: 50px;
+      width: 50px;
+      height: 50px;
       background: #111;
       border: 2px solid #888;
       box-sizing: border-box;
@@ -104,6 +112,7 @@
     .brush.selected {
       border-color: #fff;
     }
+
     /* Laser-Button ins untere Drittel */
     #laserBtn {
       position: absolute;
@@ -117,7 +126,8 @@
       touch-action: none;
       z-index: 10;
     }
-    /* Permission-Button */
+
+    /* Gyro-Permission Button */
     #permBtn {
       position: absolute;
       top: 50%;
@@ -131,7 +141,7 @@
 </head>
 <body>
   <button id="permBtn">Gyro freigeben</button>
-  <div class="version">v3.14</div>
+  <div class="version">v3.15</div>
 
   <div id="controls">
     <!-- Farbton -->
@@ -149,7 +159,7 @@
 
   <button id="laserBtn"></button>
 
-  <!-- Pinsel-Auswahl -->
+  <!-- Pinsel-Auswahl ganz unten -->
   <div id="brushes">
     <canvas class="brush" id="brush1" data-brush="1" width="50" height="50"></canvas>
     <canvas class="brush" id="brush2" data-brush="2" width="50" height="50"></canvas>
@@ -167,7 +177,7 @@
     socket.emit("identify", { role: "control", deviceId });
 
     const permBtn   = document.getElementById("permBtn");
-    const hueSlider = document.getElementById("hue"),  hueVal  = document.getElementById("hueVal");
+    const hueSlider = document.getElementById("hue"),  hueVal = document.getElementById("hueVal");
     const intSlider = document.getElementById("intensity"), intVal = document.getElementById("intVal");
     const preview   = document.getElementById("preview");
     const laserBtn  = document.getElementById("laserBtn");
@@ -208,8 +218,10 @@
     function setHueBackground() {
       hueSlider.style.background =
         'linear-gradient(to right, ' +
-        'hsl(0,100%,50%), hsl(60,100%,50%), hsl(120,100%,50%), ' +
-        'hsl(180,100%,50%), hsl(240,100%,50%), hsl(300,100%,50%), hsl(360,100%,50%))';
+          'hsl(0,100%,50%), hsl(60,100%,50%), hsl(120,100%,50%), ' +
+          'hsl(180,100%,50%), hsl(240,100%,50%), hsl(300,100%,50%), ' +
+          'hsl(360,100%,50%)' +
+        ')';
     }
     function setIntensityBackground() {
       const mid = `hsl(${hue},100%,50%)`;
