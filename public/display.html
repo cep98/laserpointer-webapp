@@ -1,116 +1,91 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Laser Display v3.3</title>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Laserpointer Display v3.0</title>
   <style>
-    body {
-      margin: 0;
-      background: black;
-      color: white;
-      font-family: sans-serif;
-      font-size: 14px;
-    }
-    #canvas {
-      display: block;
-      margin: auto;
-      background: black;
-    }
+    body { margin:0; background:#000; }
+    #canvas { display:block; margin:auto; background:#000; }
     #version {
-      position: absolute;
-      top: 6px;
-      right: 10px;
-      font-size: 12px;
-      color: white;
-      opacity: 0.5;
+      position:absolute; top:10px; left:10px;
+      color:#fff; font-family:sans-serif; font-size:14px; opacity:0.6;
     }
   </style>
 </head>
 <body>
-  <div id="version">v3.3</div>
+  <div id="version">v3.0</div>
   <canvas id="canvas" width="1024" height="1024"></canvas>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
-    const canvas = document.getElementById("canvas");
-    const ctx = canvas.getContext("2d");
+    const c = document.getElementById("canvas"),
+          ctx = c.getContext("2d");
+    const MAX_ANGLE = 20,
+          CX = c.width/2,
+          CY = c.height/2;
 
-    const maxAngle = 20;
-    let points = [];
-    let laserX = 512;
-    let laserY = 512;
-    let lastX = null;
-    let lastY = null;
-    let color = "#ff0000";
-    let isDrawing = false;
-    let isCalibrated = false;
-    let alpha0 = 0;
-    let beta0 = 0;
+    let alpha0, beta0, calibrated=false;
+    let lastX=null, lastY=null;
+    const segments = [];
 
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-
-    socket.on("motion", ({ alpha, beta, color: c, isDrawing: draw }) => {
-      if (typeof alpha !== "number" || typeof beta !== "number") return;
-
-      if (c) color = c;
-      if (draw !== undefined) isDrawing = draw;
-
-      if (!isCalibrated && isDrawing) {
-        alpha0 = alpha;
-        beta0 = beta;
-        isCalibrated = true;
-      }
-
-      const relAlpha = alpha - alpha0;
-      const relBeta = beta - beta0;
-
-      laserX = 512 + (relAlpha / maxAngle) * 512;
-      laserY = 512 + (relBeta / maxAngle) * 512;
-
-      // Begrenzen
-      laserX = Math.max(0, Math.min(1023, laserX));
-      laserY = Math.max(0, Math.min(1023, laserY));
-
-      if (isDrawing) {
-        if (lastX !== null && lastY !== null) {
-          drawLine(lastX, lastY, laserX, laserY, color);
-        }
-        lastX = laserX;
-        lastY = laserY;
-      } else {
-        lastX = null;
-        lastY = null;
-      }
-    });
-
-    socket.on("clear", () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-    });
-
-    function drawLine(x1, y1, x2, y2, color) {
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 6;
-      ctx.beginPath();
-      ctx.moveTo(x1, y1);
-      ctx.lineTo(x2, y2);
-      ctx.stroke();
-    }
-
-    function drawLaserDot() {
-      if (!isDrawing) {
-        const r = 6 + Math.sin(Date.now() / 150) * 2;
+    // Zeichne permanent
+    function render() {
+      ctx.clearRect(0,0,c.width,c.height);
+      // alle Linien zeichnen
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      segments.forEach(s=>{
+        ctx.strokeStyle = s.color;
+        ctx.lineWidth = 6;
         ctx.beginPath();
-        ctx.arc(laserX, laserY, r, 0, 2 * Math.PI);
-        ctx.fillStyle = color;
+        ctx.moveTo(s.x1,s.y1);
+        ctx.lineTo(s.x2,s.y2);
+        ctx.stroke();
+      });
+      // Pulsierender Punkt
+      if (lastX!=null) {
+        const r = 4 + Math.sin(Date.now()/150)*2;
+        ctx.beginPath();
+        ctx.arc(lastX,lastY,r,0,2*Math.PI);
+        ctx.fillStyle = segments.length? segments[segments.length-1].color : "#fff";
         ctx.fill();
       }
-      requestAnimationFrame(drawLaserDot);
+      requestAnimationFrame(render);
     }
+    render();
 
-    drawLaserDot();
+    // Incoming motion
+    socket.on("motion",({alpha,beta,color,isDrawing})=>{
+      if (!calibrated && isDrawing) {
+        alpha0 = alpha; beta0 = beta;
+        calibrated = true;
+      }
+      if (!calibrated) return;
+      // rel
+      let dA = alpha - alpha0,
+          dB = beta  - beta0;
+      // wrap
+      if (dA>180) dA-=360; if(dA<-180) dA+=360;
+      // clamp
+      dA = Math.max(-MAX_ANGLE,Math.min(MAX_ANGLE,dA));
+      dB = Math.max(-MAX_ANGLE,Math.min(MAX_ANGLE,dB));
+      // map
+      const x = CX + (dA/MAX_ANGLE)*CX,
+            y = CY + (dB/MAX_ANGLE)*CY;
+      if (isDrawing) {
+        if (lastX!=null && lastY!=null) {
+          segments.push({ x1:lastX, y1:lastY, x2:x, y2:y, color });
+        }
+        lastX = x; lastY = y;
+      } else {
+        lastX = x; lastY = y;
+      }
+    });
+
+    // optional clear
+    socket.on("clear",()=>{ segments.length=0; lastX=lastY=null; });
   </script>
 </body>
 </html>
