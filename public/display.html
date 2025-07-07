@@ -1,38 +1,106 @@
+
 <!DOCTYPE html>
 <html lang="de">
 <head>
   <meta charset="UTF-8" />
-  <title>Display</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Display v3.2</title>
   <style>
-    html, body {
+    body {
       margin: 0;
-      overflow: hidden;
       background: black;
     }
     canvas {
       display: block;
+      margin: auto;
       background: black;
+    }
+    .version {
+      position: absolute;
+      top: 10px;
+      left: 20px;
+      color: white;
+      font-family: sans-serif;
+      font-size: 14px;
     }
   </style>
 </head>
 <body>
+  <div class="version">v3.2</div>
   <canvas id="canvas" width="1024" height="1024"></canvas>
+
   <script src="/socket.io/socket.io.js"></script>
   <script>
+    const socket = io();
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
-    const socket = io();
+    const MAX_ANGLE = 20;
 
-    socket.on("draw", data => {
-      ctx.fillStyle = data.color;
-      ctx.beginPath();
-      ctx.arc(data.x, data.y, 5, 0, Math.PI * 2);
-      ctx.fill();
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+
+    let lastPoint = null;
+    let laserPoint = null;
+
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    socket.on("motion", ({ alpha, beta, color, isDrawing }) => {
+      const relX = ((alpha % 360 + 360) % 360); // normalize to [0, 360)
+      let x = (relX > 180 ? relX - 360 : relX) / MAX_ANGLE;
+      let y = beta / MAX_ANGLE;
+
+      x = Math.max(-1, Math.min(1, x));
+      y = Math.max(-1, Math.min(1, y));
+
+      const px = centerX + x * centerX;
+      const py = centerY + y * centerY;
+
+      laserPoint = { x: px, y: py, color };
+
+      if (isDrawing) {
+        if (lastPoint) {
+          drawLine(lastPoint, laserPoint);
+        }
+        lastPoint = { ...laserPoint };
+      } else {
+        lastPoint = null;
+      }
     });
 
     socket.on("clear", () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
     });
+
+    function drawLine(p1, p2) {
+      ctx.strokeStyle = p1.color;
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.stroke();
+    }
+
+    // Pulsierender Punkt
+    let pulse = 0;
+    let growing = true;
+    function drawPulse() {
+      if (laserPoint) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (!lastPoint) {
+          ctx.beginPath();
+          ctx.arc(laserPoint.x, laserPoint.y, 4 + pulse, 0, 2 * Math.PI);
+          ctx.fillStyle = laserPoint.color;
+          ctx.fill();
+        }
+      }
+      pulse += growing ? 0.3 : -0.3;
+      if (pulse > 2) growing = false;
+      if (pulse < 0) growing = true;
+      requestAnimationFrame(drawPulse);
+    }
+
+    drawPulse();
   </script>
 </body>
 </html>
