@@ -13,6 +13,10 @@ io.on("connection", socket => {
     socket.broadcast.emit("draw", data);
   });
 
+  socket.on("motion", data => {
+    io.emit("motion", data);
+  });
+
   socket.on("drawEnd", () => {
     socket.broadcast.emit("drawEnd");
   });
@@ -26,7 +30,6 @@ io.on("connection", socket => {
   });
 });
 
-// Starte Server
 const PORT = process.env.PORT || 3000;
 http.listen(PORT, () => {
   console.log(`Server läuft auf Port ${PORT}`);
