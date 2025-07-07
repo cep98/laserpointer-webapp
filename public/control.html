@@ -3,25 +3,29 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Laserpointer Control v3.15</title>
+  <title>Laserpointer Control v3.16</title>
   <style>
-    /* Keine Auswahl/Callouts */
-    *, button {
+    /* Kein Scroll und keine Auswahl/Callouts */
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      overflow: hidden;
       -webkit-touch-callout: none;
       -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
       user-select: none;
     }
 
     body {
-      margin: 0;
-      padding: 20px 20px 140px; /* extra bottom-Padding, damit Brushes nie verdeckt werden */
+      padding: 20px 20px 140px; /* bottom-Padding, damit Pinsel-Icons immer sichtbar sind */
       background: #000;
       color: #fff;
       font-family: sans-serif;
       display: flex;
       flex-direction: column;
       align-items: center;
-      height: 100vh;
       box-sizing: border-box;
       position: relative;
     }
@@ -52,7 +56,7 @@
       flex: 1;
       height: 20px;
       border-radius: 10px;
-      background: transparent;
+      background: transparent; /* JS setzt gradient */
       cursor: pointer;
       -webkit-appearance: none;
     }
@@ -92,18 +96,17 @@
       background: hsl(0,100%,50%);
     }
 
-    /* Pinsel-Icons weiter oben, damit sie über der Adressleiste bleiben */
+    /* Pinsel-Icons weiter oben, damit sie nicht von der Adressleiste verdeckt werden */
     #brushes {
       position: absolute;
-      bottom: 100px;  /* war 20px, jetzt höher gesetzt */
+      bottom: 100px;
       left: 50%;
       transform: translateX(-50%);
       display: flex;
       gap: 20px;
     }
     .brush {
-      width: 50px;
-      height: 50px;
+      width: 50px; height: 50px;
       background: #111;
       border: 2px solid #888;
       box-sizing: border-box;
@@ -141,7 +144,7 @@
 </head>
 <body>
   <button id="permBtn">Gyro freigeben</button>
-  <div class="version">v3.15</div>
+  <div class="version">v3.16</div>
 
   <div id="controls">
     <!-- Farbton -->
@@ -159,7 +162,7 @@
 
   <button id="laserBtn"></button>
 
-  <!-- Pinsel-Auswahl ganz unten -->
+  <!-- Pinsel-Auswahl -->
   <div id="brushes">
     <canvas class="brush" id="brush1" data-brush="1" width="50" height="50"></canvas>
     <canvas class="brush" id="brush2" data-brush="2" width="50" height="50"></canvas>
