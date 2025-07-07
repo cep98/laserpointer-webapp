@@ -3,99 +3,73 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Laserpointer Control v3.11</title>
+  <title>Laserpointer Control v3.12</title>
   <style>
-    /* Keine Touch-Selection oder Callouts */
-    *, button {
+    /* Keine Textauswahl oder Callouts */
+    *, button { 
       -webkit-touch-callout: none;
-      -webkit-user-select:   none;
-      -moz-user-select:      none;
-      -ms-user-select:       none;
-      user-select:           none;
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      user-select: none;
     }
     body {
-      margin: 0;
-      padding: 20px;
-      background: #000;
-      color: #fff;
-      font-family: sans-serif;
+      margin:0; padding:20px;
+      background:#000; color:#fff; font-family:sans-serif;
+      position: relative;
     }
     .version {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      font-size: 14px;
-      opacity: 0.7;
+      position:absolute; top:10px; right:10px;
+      font-size:14px; opacity:0.7;
     }
     .setting {
-      margin: 20px 0;
-      display: flex;
-      align-items: center;
-      gap: 10px;
+      margin:20px 0; display:flex; align-items:center; gap:10px;
     }
     input[type="range"] {
-      -webkit-appearance: none;
-      width: 80%;
-      height: 20px;
-      border-radius: 10px;
-      background: transparent; /* wird per JS gesetzt */
-      cursor: pointer;
+      -webkit-appearance:none; width:80%; height:20px;
+      border-radius:10px; background:transparent; cursor:pointer;
     }
     input[type="range"]::-webkit-slider-runnable-track {
-      height: 20px;
-      border-radius: 10px;
+      height:20px; border-radius:10px;
     }
     input[type="range"]::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      width: 24px; height: 24px;
-      margin-top: -2px;
-      background: #fff;
-      border: 1px solid #888;
-      border-radius: 50%;
+      -webkit-appearance:none; width:24px; height:24px;
+      margin-top:-2px; background:#fff; border:1px solid #888;
+      border-radius:50%;
     }
     input[type="range"]::-moz-range-track {
-      height: 20px;
-      border-radius: 10px;
+      height:20px; border-radius:10px;
     }
     input[type="range"]::-moz-range-thumb {
-      width: 24px; height: 24px;
-      background: #fff;
-      border: 1px solid #888;
-      border-radius: 50%;
+      width:24px; height:24px; background:#fff;
+      border:1px solid #888; border-radius:50%;
     }
-    .value {
-      width: 50px;
-      text-align: right;
-      font-size: 1rem;
-    }
+    .value { width:50px; text-align:right; font-size:1rem; }
     #preview {
-      width: 40px;
-      height: 40px;
-      border: 2px solid #fff;
-      box-sizing: border-box;
-      background: hsl(0,100%,50%);
+      width:40px; height:40px; border:2px solid #fff;
+      box-sizing:border-box; background:hsl(0,100%,50%);
+    }
+    #brushes {
+      display:flex; justify-content:center; gap:20px;
+      margin:20px 0;
+    }
+    .brush {
+      width:50px; height:50px; border:2px solid #888;
+      background:#111; box-sizing:border-box; cursor:pointer;
+    }
+    .brush.selected {
+      border-color:#fff;
     }
     #laserBtn {
-      position: absolute;
-      bottom: 30%;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 80px;
-      height: 80px;
-      border-radius: 50%;
-      background: #fff;
-      border: none;
-      touch-action: none;
+      position:absolute; bottom:15%; left:50%;
+      transform:translateX(-50%); width:80px; height:80px;
+      border-radius:50%; background:#fff; border:none;
+      touch-action:none;
     }
-    /* Button zum Anfordern der Permission */
     #permBtn {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      padding: 12px 20px;
-      font-size: 16px;
-      z-index: 1000;
+      position:absolute; top:50%; left:50%;
+      transform:translate(-50%,-50%);
+      padding:12px 20px; font-size:16px; z-index:1000;
     }
   </style>
 </head>
@@ -103,19 +77,28 @@
   <!-- Gyro-Permission -->
   <button id="permBtn">Gyro freigeben</button>
 
-  <div class="version">v3.11</div>
+  <div class="version">v3.12</div>
 
+  <!-- Hue -->
   <div class="setting">
     <input id="hue" type="range" min="0" max="360" value="0"/>
     <span id="hueVal" class="value">0°</span>
   </div>
-
+  <!-- Intensity -->
   <div class="setting">
     <input id="intensity" type="range" min="0" max="100" value="50"/>
     <span id="intVal" class="value">50 %</span>
     <div id="preview"></div>
   </div>
 
+  <!-- Brushes -->
+  <div id="brushes">
+    <canvas class="brush" id="brush1" data-brush="1" width="50" height="50"></canvas>
+    <canvas class="brush" id="brush2" data-brush="2" width="50" height="50"></canvas>
+    <canvas class="brush" id="brush3" data-brush="3" width="50" height="50"></canvas>
+  </div>
+
+  <!-- Laserbutton -->
   <button id="laserBtn"></button>
 
   <script src="/socket.io/socket.io.js"></script>
@@ -129,49 +112,45 @@
     }
     socket.emit("identify", { role: "control", deviceId });
 
-    const permBtn   = document.getElementById("permBtn");
-    const hueSlider = document.getElementById("hue");
-    const hueVal    = document.getElementById("hueVal");
-    const intSlider = document.getElementById("intensity");
-    const intVal    = document.getElementById("intVal");
-    const preview   = document.getElementById("preview");
-    const laserBtn  = document.getElementById("laserBtn");
+    // Elemente
+    const permBtn    = document.getElementById("permBtn");
+    const hueSlider  = document.getElementById("hue"),
+          hueVal     = document.getElementById("hueVal");
+    const intSlider  = document.getElementById("intensity"),
+          intVal     = document.getElementById("intVal");
+    const preview    = document.getElementById("preview");
+    const laserBtn   = document.getElementById("laserBtn");
+    const brushEls   = document.querySelectorAll(".brush");
 
-    let isDrawing = false;
-    let hue       = 0;
-    let intensity = 50;
-    let colorHSL  = `hsl(0,100%,50%)`;
+    let isDrawing   = false;
+    let hue         = 0;
+    let intensity   = 50;
+    let colorHSL    = `hsl(0,100%,50%)`;
+    let brushType   = 1;  // 1,2 oder 3
 
-    // Erst wenn Nutzer explizit erlaubt
+    // Permission-Button
     permBtn.addEventListener("click", async () => {
-      if (typeof DeviceOrientationEvent.requestPermission === "function") {
+      if (DeviceOrientationEvent.requestPermission) {
         try {
           const res = await DeviceOrientationEvent.requestPermission();
           if (res === "granted") {
-            initGyro();
+            window.addEventListener("deviceorientation", sendOri);
             permBtn.style.display = "none";
-          } else {
-            alert("Gyro-Zugriff verweigert");
-          }
-        } catch (err) {
-          console.error(err);
-        }
+          } else alert("Gyro-Zugriff verweigert");
+        } catch(e){ console.error(e); }
       } else {
-        initGyro();
+        window.addEventListener("deviceorientation", sendOri);
         permBtn.style.display = "none";
       }
     });
 
-    function initGyro() {
-      window.addEventListener("deviceorientation", sendOri);
-    }
-
     function sendOri(e) {
-      if (e.alpha == null || e.beta == null) return;
+      if (e.alpha==null||e.beta==null) return;
       socket.emit("motion", {
-        alpha:      e.alpha,
-        beta:       e.beta,
-        color:      colorHSL,
+        alpha: e.alpha,
+        beta:  e.beta,
+        color: colorHSL,
+        brush: brushType,
         isDrawing
       });
     }
@@ -179,10 +158,10 @@
     // Slider-Hintergründe
     function setHueBackground() {
       hueSlider.style.background =
-        "linear-gradient(to right, " +
-        "hsl(0,100%,50%), hsl(60,100%,50%), hsl(120,100%,50%), " +
-        "hsl(180,100%,50%), hsl(240,100%,50%), hsl(300,100%,50%), hsl(360,100%,50%)" +
-        ")";
+        'linear-gradient(to right, ' +
+        'hsl(0,100%,50%),hsl(60,100%,50%),hsl(120,100%,50.),' +
+        'hsl(180,100%,50%),hsl(240,100%,50.),hsl(300,100%,50.),' +
+        'hsl(360,100%,50.))';
     }
     function setIntensityBackground() {
       const mid = `hsl(${hue},100%,50%)`;
@@ -200,24 +179,66 @@
       setIntensityBackground();
     }
 
+    // Initial setup
     setHueBackground();
     setIntensityBackground();
     updateColor();
-
     hueSlider.addEventListener("input", updateColor);
     intSlider.addEventListener("input", updateColor);
 
-    laserBtn.addEventListener("touchstart", e => {
+    // Brush-Setup & Preview zeichnen
+    brushEls.forEach(el => {
+      const id = +el.dataset.brush;
+      const ctx = el.getContext("2d");
+      ctx.clearRect(0,0,50,50);
+      ctx.strokeStyle = "#fff";
+      ctx.fillStyle   = "#fff";
+
+      if (id === 1) {
+        // Punkt in Mitte
+        ctx.beginPath();
+        ctx.arc(25,25,5,0,2*Math.PI);
+        ctx.fill();
+      } else if (id === 2) {
+        // Diagonale Linie Länge 15
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(17.5,17.5);
+        ctx.lineTo(32.5,32.5);
+        ctx.stroke();
+      } else if (id === 3) {
+        // Vier Punkte 3px, Abstand 10
+        const pts = [15,35];
+        pts.forEach(x=>{
+          pts.forEach(y=>{
+            ctx.beginPath();
+            ctx.arc(x,y,1.5,0,2*Math.PI);
+            ctx.fill();
+          });
+        });
+      }
+      // Klick-Handler
+      el.addEventListener("click", ()=>{
+        brushEls.forEach(b=>b.classList.remove("selected"));
+        el.classList.add("selected");
+        brushType = id;
+      });
+    });
+    // Default-Auswahl
+    document.querySelector(".brush[data-brush='1']").classList.add("selected");
+
+    // Laserbutton Events
+    laserBtn.addEventListener("touchstart", e=>{
       e.preventDefault();
       isDrawing = true;
     });
-    laserBtn.addEventListener("touchend", e => {
+    laserBtn.addEventListener("touchend", e=>{
       e.preventDefault();
       isDrawing = false;
     });
 
     // Kontextmenü unterdrücken
-    document.addEventListener("contextmenu", e => e.preventDefault());
+    document.addEventListener("contextmenu", e=>e.preventDefault());
   </script>
 </body>
 </html>
