@@ -3,162 +3,138 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>Laserpointer Display v3.12</title>
+  <title>Laserpointer Display v3.13</title>
   <style>
-    body { margin:0; background:black; }
-    canvas { display:block; margin:auto; background:black; }
+    body { margin:0; background:black }
+    canvas { display:block; margin:auto; background:black }
     #version {
-      position:absolute; top:10px; left:10px;
-      color:white; font-family:sans-serif; font-size:14px; opacity:0.6;
+      position:absolute; top:8px; left:8px;
+      color:#fff; font-family:sans-serif; font-size:14px; opacity:0.6;
     }
   </style>
 </head>
 <body>
-  <div id="version">v3.12 (multi-user + smoothing)</div>
+  <div id="version">v3.13 (dynamic thickness)</div>
   <canvas id="canvas" width="1024" height="1024"></canvas>
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
     socket.emit("identify", { role: "display", deviceId: null });
 
-    const c    = document.getElementById("canvas"),
-          ctx  = c.getContext("2d"),
-          CX   = c.width/2,
-          CY   = c.height/2;
+    const c   = document.getElementById("canvas"),
+          ctx = c.getContext("2d"),
+          CX  = c.width/2,
+          CY  = c.height/2;
 
-    // Defaults (werden per Admin überschrieben)
-    let MAX_H   = 20,
-        MAX_V   = 20,
-        SMOOTH  = 0.15;
-
-    // Datenstrukturen pro Gerät
-    const alpha0Map   = {},        // Kalibrier-Nullpunkt alpha
-          beta0Map    = {},        // Kalibrier-Nullpunkt beta
-          rawPos      = {},        // deviceId → { x, y }
-          smoothPos   = {},        // deviceId → { x, y } geglättet
-          lastColor   = {},        // deviceId → color
-          lastLight   = {},        // deviceId → lightness %
-          segments    = [];        // alle Liniensegmente
-
-    ctx.lineCap  = "round";
-    ctx.lineJoin = "round";
-
-    // Admin-Einstellungen live übernehmen
+    // Admin-Settings (falls genutzt)
+    let MAX_H = 20, MAX_V = 20, SMOOTH = 0.15;
     socket.on("updateSettings", ({ maxH, maxV, smooth }) => {
       if (typeof maxH   === "number") MAX_H  = maxH;
       if (typeof maxV   === "number") MAX_V  = maxV;
       if (typeof smooth === "number") SMOOTH = smooth;
     });
 
-    // Neue Bewegungsdaten
-    socket.on("motion", ({ alpha, beta, color, isDrawing, deviceId }) => {
-      if (!deviceId || typeof alpha!=="number" || typeof beta!=="number") return;
+    // State pro Gerät
+    const alpha0    = {},  // Kalibrier-Null α
+          beta0     = {},  // Kalibrier-Null β
+          lastSm    = {},  // letzte geglättete Position
+          lastTime  = {},  // letzter Timestamp
+          lastCol   = {},  // Farbe
+          lastLit   = {};  // Lightness %
 
-      // Lightness aus HSL extrahieren
-      const m = color.match(/hsl\([^,]+,\s*[^,]+,\s*(\d+)%\)/);
-      const light = m ? parseInt(m[1],10) : 50;
-      lastLight[deviceId] = light;
-      lastColor[deviceId] = color;
+    ctx.lineCap  = "round";
+    ctx.lineJoin = "round";
+
+    // Canvas clear
+    socket.on("clear", () => {
+      ctx.clearRect(0, 0, c.width, c.height);
+      for (let k in alpha0)   delete alpha0[k];
+      for (let k in beta0)    delete beta0[k];
+      for (let k in lastSm)   delete lastSm[k];
+      for (let k in lastTime) delete lastTime[k];
+      for (let k in lastCol)  delete lastCol[k];
+      for (let k in lastLit)  delete lastLit[k];
+    });
+
+    function parseLight(hsl) {
+      const m = hsl.match(/hsl\(\s*\d+,\s*\d+%,\s*(\d+)%\s*\)/);
+      return m ? +m[1] : 50;
+    }
+
+    socket.on("motion", ({ alpha, beta, color, isDrawing, brush, deviceId }) => {
+      if (!deviceId || typeof alpha !== "number") return;
+      const now = performance.now();
+
+      // Farbe & Light
+      lastCol[deviceId] = color;
+      lastLit[deviceId] = parseLight(color);
 
       // Kalibrierung beim ersten Zeichnen
-      if (isDrawing && !(deviceId in alpha0Map)) {
-        alpha0Map[deviceId] = alpha;
-        beta0Map [deviceId] = beta;
-        rawPos   [deviceId] = { x: CX, y: CY };
-        smoothPos[deviceId] = { x: CX, y: CY };
+      if (isDrawing && !(deviceId in alpha0)) {
+        alpha0[deviceId] = alpha;
+        beta0 [deviceId] = beta;
       }
-      if (!(deviceId in alpha0Map)) return;
+      if (!(deviceId in alpha0)) return;
 
-      // Winkel-Delta + Wrap-Around
-      let dA = alpha - alpha0Map[deviceId];
-      if (dA > 180)  dA -= 360;
+      // Winkel-Delta + Wrap
+      let dA = alpha - alpha0[deviceId];
+      if (dA > 180) dA -= 360;
       if (dA < -180) dA += 360;
-      let dB = beta - beta0Map[deviceId];
+      let dB = beta - beta0[deviceId];
 
-      // Begrenzen
+      // Clamp
       dA = Math.max(-MAX_H, Math.min(MAX_H, dA));
       dB = Math.max(-MAX_V, Math.min(MAX_V, dB));
 
-      // Mapping auf Canvas (invertiert)
-      const x = CX - (dA / MAX_H) * CX;
-      const y = CY - (dB / MAX_V) * CY;
+      // Map auf Canvas raw
+      const rawX = CX - (dA/MAX_H)*CX;
+      const rawY = CY - (dB/MAX_V)*CY;
 
-      // Linien-Segment, falls gezeichnet wird
+      // Init smoothing / time
+      if (!(deviceId in lastSm)) {
+        lastSm[deviceId]   = { x: CX, y: CY };
+        lastTime[deviceId] = now;
+      }
+      const s = lastSm[deviceId];
+      // smoothing
+      s.x += (rawX - s.x) * SMOOTH;
+      s.y += (rawY - s.y) * SMOOTH;
+
+      // Geschwindigkeit (px/ms)
+      const dt = now - lastTime[deviceId] || 16;
+      const dx = s.x - (lastSm[deviceId].x || s.x);
+      const dy = s.y - (lastSm[deviceId].y || s.y);
+      const speed = Math.hypot(dx, dy) / dt;
+
+      // Map Speed → thickness [max 12px at speed→0, min 2px at fast]
+      const maxW = 12, minW = 2;
+      // z.B. cutoff speed 0→0px, 0.5px/ms→full dynamic
+      const norm = Math.min(1, speed / 0.5);
+      const w = maxW - (maxW - minW) * norm;
+      const r = w/2; // radius
+
+      // Zeichnen nur bei isDrawing
       if (isDrawing) {
-        const prev = rawPos[deviceId];
-        segments.push({
-          x1: prev.x, y1: prev.y,
-          x2: x,      y2: y,
-          color, deviceId
-        });
-      }
+        ctx.strokeStyle = color;
+        ctx.fillStyle   = color;
+        ctx.lineWidth   = w;
 
-      // Rohdaten speichern
-      rawPos[deviceId] = { x, y };
-    });
-
-    // Canvas löschen
-    socket.on("clear", () => {
-      segments.length = 0;
-      ctx.clearRect(0,0,c.width,c.height);
-      for (let id in rawPos)    delete rawPos[id];
-      for (let id in smoothPos) delete smoothPos[id];
-      for (let id in alpha0Map) delete alpha0Map[id];
-      for (let id in beta0Map)  delete beta0Map[id];
-      for (let id in lastLight) delete lastLight[id];
-    });
-
-    // Puls + Render-Loop
-    let pulse = 0, growing = true;
-    function render() {
-      ctx.clearRect(0,0,c.width,c.height);
-
-      // 1) Linien zeichnen
-      for (const s of segments) {
-        ctx.strokeStyle = s.color;
-        ctx.lineWidth   = 6;
+        // Mittellinie
         ctx.beginPath();
-        ctx.moveTo(s.x1, s.y1);
-        ctx.lineTo(s.x2, s.y2);
+        ctx.moveTo(s.x, s.y);
+        ctx.lineTo(rawX, rawY);
         ctx.stroke();
-      }
 
-      // 2) Punkt-Glättung & Puls
-      pulse += growing ? 0.2 : -0.2;
-      if (pulse > 2)  growing = false;
-      if (pulse < 0)  growing = true;
-
-      for (const id in rawPos) {
-        const target = rawPos[id];
-        const smooth = smoothPos[id] = smoothPos[id] || { x:CX, y:CY };
-
-        // Glätten
-        smooth.x += (target.x - smooth.x) * SMOOTH;
-        smooth.y += (target.y - smooth.y) * SMOOTH;
-
-        const col   = lastColor[id] || "hsl(0,100%,50%)";
-        const light = lastLight[id] || 50;
-        const r     = 4 + pulse;
-
-        // Punkt zeichnen
+        // Punkt am Ende
         ctx.beginPath();
-        ctx.arc(smooth.x, smooth.y, r, 0, 2*Math.PI);
-        ctx.fillStyle = col;
+        ctx.arc(rawX, rawY, r, 0, 2*Math.PI);
         ctx.fill();
-
-        // Weißer Ring bei Low-Light
-        if (light < 20) {
-          ctx.beginPath();
-          ctx.arc(smooth.x, smooth.y, r + 3, 0, 2*Math.PI);
-          ctx.strokeStyle = "#fff";
-          ctx.lineWidth   = 3;
-          ctx.stroke();
-        }
       }
 
-      requestAnimationFrame(render);
-    }
-    render();
+      // Update
+      lastSm[deviceId]   = { x: rawX, y: rawY };
+      lastTime[deviceId] = now;
+    });
   </script>
 </body>
 </html>
