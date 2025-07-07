@@ -2,8 +2,8 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Laserpointer Display v3.5</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Laserpointer Display v3.6</title>
   <style>
     body { margin:0; background:black; }
     canvas { display:block; margin:auto; background:black; }
@@ -14,48 +14,44 @@
   </style>
 </head>
 <body>
-  <div id="version">v3.5</div>
+  <div id="version">v3.6</div>
   <canvas id="canvas" width="1024" height="1024"></canvas>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
-    // Rolle anmelden
-    socket.emit("identify", "display");
+    // Anmeldung als Display
+    socket.emit("identify", { role: "display", deviceId: null });
 
-    const c = document.getElementById("canvas");
-    const ctx = c.getContext("2d");
-    const CX = c.width/2, CY = c.height/2;
+    const c  = document.getElementById("canvas"),
+          ctx = c.getContext("2d"),
+          CX  = c.width/2,
+          CY  = c.height/2;
 
-    // Default-Werte (Admin überschreibt)
     let MAX_H = 20, MAX_V = 20, SMOOTH = 0.15;
-
-    // Zustände
-    let calibrated = false, alpha0=0, beta0=0;
-    let lastRawX=null, lastRawY=null;
-    let smoothX=CX, smoothY=CY;
-    let segments = [];
-    let currentColor = "#ff0000";
+    let calibrated = false, alpha0 = 0, beta0 = 0;
+    let lastRawX = null, lastRawY = null;
+    let smoothX = CX, smoothY = CY;
+    let segments = [], currentColor = "#ff0000";
 
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
 
-    // Admin-Einstellungen
+    // Admin-Settings empfangen
     socket.on("updateSettings", ({ maxH, maxV, smooth }) => {
-      if (typeof maxH === "number") MAX_H = maxH;
-      if (typeof maxV === "number") MAX_V = maxV;
-      if (typeof smooth === "number") SMOOTH = smooth;
+      if (typeof maxH   === "number") MAX_H   = maxH;
+      if (typeof maxV   === "number") MAX_V   = maxV;
+      if (typeof smooth === "number") SMOOTH  = smooth;
     });
 
-    // Motion-Daten empfangen
+    // Motion-Daten verarbeiten
     socket.on("motion", ({ alpha, beta, color, isDrawing }) => {
       if (typeof alpha!=="number" || typeof beta!=="number") return;
       if (color) currentColor = color;
 
-      // Kalibrieren beim ersten Zeichnen
+      // Kalibrierung beim ersten Zeichnen
       if (!calibrated && isDrawing) {
-        alpha0 = alpha;
-        beta0  = beta;
+        alpha0 = alpha; beta0 = beta;
         calibrated = true;
         lastRawX = CX; lastRawY = CY;
         smoothX = CX; smoothY = CY;
@@ -64,8 +60,8 @@
 
       // Winkel-Delta mit Wrap
       let dA = alpha - alpha0;
-      if (dA>180) dA-=360;
-      if (dA<-180) dA+=360;
+      if (dA > 180)  dA -= 360;
+      if (dA < -180) dA += 360;
       const dB = beta - beta0;
 
       // Begrenzen
@@ -76,15 +72,14 @@
       const rawX = CX - (rA/MAX_H)*CX;
       const rawY = CY - (rB/MAX_V)*CY;
 
-      // Linie zeichnen
-      if (isDrawing && lastRawX!==null) {
+      // Zeichnen bei isDrawing
+      if (isDrawing && lastRawX !== null) {
         segments.push({
-          x1:lastRawX, y1:lastRawY,
-          x2:rawX,     y2:rawY,
-          color:currentColor
+          x1: lastRawX, y1: lastRawY,
+          x2: rawX,     y2: rawY,
+          color: currentColor
         });
       }
-
       lastRawX = rawX;
       lastRawY = rawY;
     });
@@ -94,37 +89,30 @@
       segments = [];
       ctx.clearRect(0,0,c.width,c.height);
       calibrated = false;
-      lastRawX=lastRawY=null;
-      smoothX=CX; smoothY=CY;
+      lastRawX = lastRawY = null;
+      smoothX = CX; smoothY = CY;
     });
 
-    // Render-Loop
+    // Render-Loop mit Glättung und pulsierendem Punkt
     function render() {
       ctx.clearRect(0,0,c.width,c.height);
-
-      // gezeichnete Linien
-      segments.forEach(s=>{
+      for (const s of segments) {
         ctx.strokeStyle = s.color;
         ctx.lineWidth   = 6;
         ctx.beginPath();
-        ctx.moveTo(s.x1,s.y1);
-        ctx.lineTo(s.x2,s.y2);
+        ctx.moveTo(s.x1, s.y1);
+        ctx.lineTo(s.x2, s.y2);
         ctx.stroke();
-      });
-
-      // Punkt-Glättung
+      }
       if (lastRawX !== null) {
         smoothX += (lastRawX - smoothX) * SMOOTH;
         smoothY += (lastRawY - smoothY) * SMOOTH;
-
-        // pulsierender Punkt
         const r = 4 + Math.sin(Date.now()/150)*2;
         ctx.beginPath();
         ctx.arc(smoothX, smoothY, r, 0, 2*Math.PI);
         ctx.fillStyle = currentColor;
         ctx.fill();
       }
-
       requestAnimationFrame(render);
     }
     render();
