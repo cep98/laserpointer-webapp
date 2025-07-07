@@ -9,6 +9,10 @@
       background: #111; color: #eee;
       font-family: sans-serif; padding: 20px;
     }
+    .status {
+      margin-bottom: 20px;
+      font-size: 1.2rem;
+    }
     label, input {
       display: block; margin: 10px 0;
     }
@@ -19,11 +23,15 @@
       padding: 10px 20px; background: red;
       color: white; border:none; cursor:pointer;
       font-size: 1rem;
+      margin-top: 10px;
     }
   </style>
 </head>
 <body>
-  <h1>Admin-Panel</h1>
+  <div class="status">
+    Display-Status:
+    <span id="display-status" style="color:orange">unbekannt</span>
+  </div>
 
   <label>Max. Winkel horizontal (°):
     <input type="number" id="horiz" value="20" />
@@ -51,33 +59,46 @@
   <script>
     const socket = io();
 
+    // als Admin vorstellen
+    socket.emit("identify", { role: "admin", deviceId: null });
+
+    // Anzeige-Element
+    const statusEl = document.getElementById("display-status");
+
+    // wenn Display sich verbindet / trennt
+    socket.on("display-status", ({connected}) => {
+      statusEl.textContent = connected ? "verbunden" : "nicht verbunden";
+      statusEl.style.color = connected ? "lightgreen" : "crimson";
+    });
+
+    // Eingaben aus Admin
     function sendSettings() {
-      const maxAlpha = parseFloat(document.getElementById("horiz").value);
-      const maxBeta  = parseFloat(document.getElementById("vert").value);
-      const smooth   = parseFloat(document.getElementById("smooth").value) / 100;
-      const minW     = parseFloat(document.getElementById("minW").value);
-      const maxW     = parseFloat(document.getElementById("maxW").value);
+      const maxH   = parseFloat(horiz.value);
+      const maxV   = parseFloat(vert.value);
+      const smooth = parseFloat(smooth.value) / 100;
+      const minW   = parseFloat(minW_input.value);
+      const maxW   = parseFloat(maxW_input.value);
 
       socket.emit("admin-settings", {
-        maxH: maxAlpha,
-        maxV: maxBeta,
-        smooth,
-        minW,
-        maxW
+        maxH, maxV, smooth, minW, maxW
       });
     }
 
-    document.getElementById("horiz").addEventListener("change", sendSettings);
-    document.getElementById("vert").addEventListener ("change", sendSettings);
-    document.getElementById("smooth").addEventListener("input", sendSettings);
-    document.getElementById("minW").addEventListener("change", sendSettings);
-    document.getElementById("maxW").addEventListener("change", sendSettings);
+    const horiz      = document.getElementById("horiz");
+    const vert       = document.getElementById("vert");
+    const smooth     = document.getElementById("smooth");
+    const minW_input = document.getElementById("minW");
+    const maxW_input = document.getElementById("maxW");
+
+    [horiz, vert, smooth, minW_input, maxW_input].forEach(el => {
+      el.addEventListener(el.type==="range"?"input":"change", sendSettings);
+    });
 
     document.getElementById("clear").addEventListener("click", () => {
       socket.emit("clear");
     });
 
-    // einmal initial senden
+    // initial senden
     sendSettings();
   </script>
 </body>
