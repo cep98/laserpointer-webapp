@@ -3,83 +3,77 @@ const app     = express();
 const http    = require("http").createServer(app);
 const io      = require("socket.io")(http);
 
-// Statische Dateien aus "public" bereitstellen
+// Statische Dateien ausliefern
 app.use(express.static("public"));
 
-// State-Tracking
-const roles            = new Map();  // socket.id → "control"|"display"|"admin"
-const controls         = new Map();  // socket.id → deviceId
-let displayConnected   = false;
+// Inaktivitäts-Timeout (5 Sekunden)
+const INACTIVITY_TIMEOUT = 5 * 1000;
+
+// clients: socketId → { ip, type, deviceId, lastMotion }
+const clients = {};
+
+// Funktion zum Senden der aktuellen Client-Liste an alle Admins
+function broadcastClients() {
+  const now = Date.now();
+  const list = Object.entries(clients).map(([socketId, info]) => ({
+    socketId,
+    ip:       info.ip,
+    deviceId: info.deviceId,
+    type:     info.type,
+    // active nur für Control-Clients, die innerhalb des Timeouts zuletzt motion gesendet haben
+    active:   info.type === "control" && (now - info.lastMotion) < INACTIVITY_TIMEOUT
+  }));
+  io.emit("client-list", list);
+}
 
 io.on("connection", socket => {
-  console.log("Client verbunden:", socket.id);
+  // Client initial registrieren
+  const ip = socket.handshake.address;
+  clients[socket.id] = {
+    ip,
+    type:       null,
+    deviceId:   null,
+    lastMotion: Date.now()
+  };
 
-  // Identify-Event von Control / Display / Admin
-  socket.on("identify", info => {
-    const role = info.role;
-    roles.set(socket.id, role);
-
-    if (role === "display") {
-      // Display hat sich angemeldet
-      displayConnected = true;
-      io.emit("display-status", { connected: true });
-      console.log("Display verbunden");
-    }
-
-    if (role === "admin") {
-      // Neuer Admin will Status wissen
-      socket.emit("display-status", { connected: displayConnected });
-      // Und Liste der aktuell verbundenen Controls
-      socket.emit("controls-status", Array.from(controls.values()));
-      console.log("Admin angemeldet, Status gesendet");
-    }
-
-    if (role === "control") {
-      // Control schickt seine deviceId mit
-      const deviceId = info.deviceId || socket.id;
-      controls.set(socket.id, deviceId);
-      io.emit("controls-status", Array.from(controls.values()));
-      console.log("Control angemeldet, ID:", deviceId);
+  // Rolle und Geräte-ID setzen
+  socket.on("identify", ({ role, deviceId }) => {
+    if (["control","display","admin"].includes(role)) {
+      clients[socket.id].type     = role;
+      clients[socket.id].deviceId = deviceId || null;
+      broadcastClients();
     }
   });
 
-  // Bewegungsdaten von Control → alle Displays
+  // Motion-Event: Zeitstempel aktualisieren und mitsenden
   socket.on("motion", data => {
-    socket.broadcast.emit("motion", data);
+    if (clients[socket.id]) {
+      clients[socket.id].lastMotion = Date.now();
+      const deviceId = clients[socket.id].deviceId;
+      io.emit("motion", { ...data, deviceId });
+    }
   });
 
-  // Canvas löschen (von Admin oder Control)
+  // Admin-Einstellungen weiterleiten
+  socket.on("updateSettings", settings => {
+    io.emit("updateSettings", settings);
+  });
+
+  // Canvas löschen
   socket.on("clear", () => {
     io.emit("clear");
   });
 
-  // Admin-Einstellungen verbreiten
-  socket.on("admin-settings", settings => {
-    io.emit("updateSettings", settings);
-  });
-
+  // Trennung: Client entfernen
   socket.on("disconnect", () => {
-    console.log("Client getrennt:", socket.id);
-    const role = roles.get(socket.id);
-    roles.delete(socket.id);
-
-    if (role === "display") {
-      // Display ist weg
-      displayConnected = false;
-      io.emit("display-status", { connected: false });
-      console.log("Display getrennt");
-    }
-
-    if (role === "control") {
-      // Control ist weg
-      controls.delete(socket.id);
-      io.emit("controls-status", Array.from(controls.values()));
-      console.log("Control getrennt");
-    }
+    delete clients[socket.id];
+    broadcastClients();
   });
 });
 
-// Server starten
+// Periodisch jede Sekunde die Client-Liste senden
+setInterval(broadcastClients, 1000);
+
 const PORT = process.env.PORT || 3000;
 http.listen(PORT, () => {
   console.log(`Server läuft auf Port ${PORT}`);
