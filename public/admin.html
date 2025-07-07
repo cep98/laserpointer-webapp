@@ -1,105 +1,55 @@
-<!DOCTYPE html>
-<html lang="de">
-<head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>Admin-Panel</title>
-  <style>
-    body {
-      background: #111; color: #eee;
-      font-family: sans-serif; padding: 20px;
+const express = require("express");
+const app     = express();
+const http    = require("http").createServer(app);
+const io      = require("socket.io")(http);
+
+app.use(express.static("public"));
+
+// merken, ob gerade eine Display-Instanz verbunden ist
+let displayConnected = false;
+
+io.on("connection", socket => {
+  console.log("Client verbunden:", socket.id);
+
+  // Identify-Event von Control, Display oder Admin
+  socket.on("identify", info => {
+    if (info.role === "display") {
+      displayConnected = true;
+      // allen Admins Bescheid sagen
+      io.emit("display-status", { connected: true });
+      console.log("Display connected");
     }
-    .status {
-      margin-bottom: 20px;
-      font-size: 1.2rem;
+    if (info.role === "admin") {
+      // direkt den aktuellen Status an den neuen Admin schicken
+      socket.emit("display-status", { connected: displayConnected });
+      console.log("Admin joined, display status sent =", displayConnected);
     }
-    label, input {
-      display: block; margin: 10px 0;
-    }
-    input[type=number], input[type=range] {
-      width: 100%; max-width: 300px;
-    }
-    button {
-      padding: 10px 20px; background: red;
-      color: white; border:none; cursor:pointer;
-      font-size: 1rem;
-      margin-top: 10px;
-    }
-  </style>
-</head>
-<body>
-  <div class="status">
-    Display-Status:
-    <span id="display-status" style="color:orange">unbekannt</span>
-  </div>
+  });
 
-  <label>Max. Winkel horizontal (°):
-    <input type="number" id="horiz" value="20" />
-  </label>
+  // Bewegungsdaten von Control weiterreichen
+  socket.on("motion", data => {
+    socket.broadcast.emit("motion", data);
+  });
 
-  <label>Max. Winkel vertikal (°):
-    <input type="number" id="vert" value="20" />
-  </label>
+  // Canvas clear
+  socket.on("clear", () => {
+    io.emit("clear");
+  });
 
-  <label>Glättung (%):
-    <input type="range" id="smooth" min="0" max="100" value="15" />
-  </label>
+  // Admin-Settings verteilen
+  socket.on("admin-settings", settings => {
+    io.emit("updateSettings", settings);
+  });
 
-  <label>Minimale Strichstärke (px):
-    <input type="number" id="minW" min="1" max="100" value="5" />
-  </label>
+  socket.on("disconnect", () => {
+    console.log("Client getrennt:", socket.id);
+    // Wenn das Display die Verbindung verliert, Status zurücksetzen
+    // (ganz einfach: wir gehen davon aus, dass nur EINE Display-Instanz läuft)
+    displayConnected = false;
+    io.emit("display-status", { connected: false });
+    console.log("Display disconnected");
+  });
+});
 
-  <label>Maximale Strichstärke (px):
-    <input type="number" id="maxW" min="1" max="100" value="12" />
-  </label>
-
-  <button id="clear">Canvas löschen</button>
-
-  <script src="/socket.io/socket.io.js"></script>
-  <script>
-    const socket = io();
-
-    // als Admin vorstellen
-    socket.emit("identify", { role: "admin", deviceId: null });
-
-    // Anzeige-Element
-    const statusEl = document.getElementById("display-status");
-
-    // wenn Display sich verbindet / trennt
-    socket.on("display-status", ({connected}) => {
-      statusEl.textContent = connected ? "verbunden" : "nicht verbunden";
-      statusEl.style.color = connected ? "lightgreen" : "crimson";
-    });
-
-    // Eingaben aus Admin
-    function sendSettings() {
-      const maxH   = parseFloat(horiz.value);
-      const maxV   = parseFloat(vert.value);
-      const smooth = parseFloat(smooth.value) / 100;
-      const minW   = parseFloat(minW_input.value);
-      const maxW   = parseFloat(maxW_input.value);
-
-      socket.emit("admin-settings", {
-        maxH, maxV, smooth, minW, maxW
-      });
-    }
-
-    const horiz      = document.getElementById("horiz");
-    const vert       = document.getElementById("vert");
-    const smooth     = document.getElementById("smooth");
-    const minW_input = document.getElementById("minW");
-    const maxW_input = document.getElementById("maxW");
-
-    [horiz, vert, smooth, minW_input, maxW_input].forEach(el => {
-      el.addEventListener(el.type==="range"?"input":"change", sendSettings);
-    });
-
-    document.getElementById("clear").addEventListener("click", () => {
-      socket.emit("clear");
-    });
-
-    // initial senden
-    sendSettings();
-  </script>
-</body>
-</html>
+const PORT = process.env.PORT || 3000;
+http.listen(PORT, () => console.log(`Server läuft auf Port ${PORT}`));
