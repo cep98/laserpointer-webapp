@@ -2,37 +2,43 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
   <title>Admin Panel</title>
   <style>
     body { background:#111; color:#fff; font-family:sans-serif; margin:0; padding:20px; }
     h1 { margin-top:0; }
-    label { display:block; margin:10px 0 5px; }
-    input { width:80px; padding:5px; margin-right:20px; }
-    button { padding:8px 16px; margin:10px 5px 0 0; }
+    .setting { margin:15px 0; }
+    label { display:inline-block; width:200px; }
+    input[type="number"], input[type="range"] {
+      vertical-align: middle;
+    }
+    #clear { padding:8px 16px; margin-left:20px; }
     #status { margin:10px 0; font-weight:bold; }
-    table { width:100%; margin-top:10px; border-collapse:collapse; }
+    table { width:100%; margin-top:20px; border-collapse:collapse; }
     th, td { padding:8px; border:1px solid #444; text-align:left; }
     th { background:#222; }
   </style>
 </head>
 <body>
   <h1>Admin Panel</h1>
+
   <div id="status">Display: <span id="dispState">–</span></div>
 
-  <div>
-    <label>Max Winkel horizontal (°):
-      <input type="number" id="maxH" value="20">
-    </label>
-    <label>Max Winkel vertikal (°):
-      <input type="number" id="maxV" value="20">
-    </label>
-    <label>Glättungs-Faktor (0–1):
-      <input type="number" step="0.01" id="smooth" value="0.15">
-    </label>
-    <button id="apply">Einstellungen übernehmen</button>
-    <button id="clear">Canvas löschen</button>
+  <div class="setting">
+    <label for="maxH">Max. Winkel horizontal (°):</label>
+    <input id="maxH" type="number" value="20" min="0" max="180"/>
   </div>
+  <div class="setting">
+    <label for="maxV">Max. Winkel vertikal (°):</label>
+    <input id="maxV" type="number" value="20" min="0" max="180"/>
+  </div>
+  <div class="setting">
+    <label for="smooth">Glättungs-Faktor (%):</label>
+    <input id="smooth" type="range" min="0" max="100" value="15"/>
+    <span id="smoothVal">15 %</span>
+  </div>
+
+  <button id="clear">Canvas löschen</button>
 
   <h2>Verbundene Handys</h2>
   <table>
@@ -42,42 +48,48 @@
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
-    const socket = io();
+    const socket    = io();
+    const elMaxH    = document.getElementById("maxH");
+    const elMaxV    = document.getElementById("maxV");
+    const elSmooth  = document.getElementById("smooth");
+    const elSmoothVal = document.getElementById("smoothVal");
+    const btnClear  = document.getElementById("clear");
+    const tblBody   = document.getElementById("clientList");
+    const dispState = document.getElementById("dispState");
 
-    // Identifizieren als Admin, damit wir uns nicht selbst sehen
+    // Identifizieren als Admin
     socket.emit("identify", "admin");
 
-    const elMaxH   = document.getElementById("maxH");
-    const elMaxV   = document.getElementById("maxV");
-    const elSmooth = document.getElementById("smooth");
-    const btnApply = document.getElementById("apply");
-    const btnClear = document.getElementById("clear");
-    const tblBody  = document.getElementById("clientList");
-    const dispState= document.getElementById("dispState");
-
-    // Einstellungen senden
-    btnApply.addEventListener("click", () => {
+    // Funktion: aktuelle Werte senden
+    function sendSettings() {
       const maxH   = parseFloat(elMaxH.value)   || 20;
       const maxV   = parseFloat(elMaxV.value)   || 20;
-      const smooth = parseFloat(elSmooth.value) || 0.15;
+      const smooth = (parseFloat(elSmooth.value) || 0) / 100;
       socket.emit("updateSettings", { maxH, maxV, smooth });
+    }
+
+    // Event-Handler
+    elMaxH.addEventListener("change", sendSettings);
+    elMaxV.addEventListener("change", sendSettings);
+    elSmooth.addEventListener("input", () => {
+      elSmoothVal.textContent = elSmooth.value + " %";
+      sendSettings();
     });
 
-    // Canvas löschen
     btnClear.addEventListener("click", () => {
       socket.emit("clear");
     });
 
-    // Aktualisierte Client-Liste vom Server
+    // Client-Liste aktualisieren
     socket.on("client-list", list => {
-      // Display-Status
-      const hasDisplay = list.some(c => c.type === "display");
-      dispState.textContent = hasDisplay ? "verbunden ✅" : "nicht verbunden ❌";
+      // Anzeige „Display: verbunden/unverbunden“
+      const hasDisp = list.some(c => c.type === "display");
+      dispState.textContent = hasDisp ? "verbunden ✅" : "nicht verbunden ❌";
 
-      // Nur Controls (Handys) anzeigen
-      const controls = list.filter(c => c.type === "control");
+      // Nur Controls (Handys) auflisten
+      const ctrls = list.filter(c => c.type === "control");
       tblBody.innerHTML = "";
-      controls.forEach(({id, ip}) => {
+      ctrls.forEach(({id, ip}) => {
         const tr = document.createElement("tr");
         tr.innerHTML = `<td>${id}</td><td>${ip}</td>`;
         tblBody.appendChild(tr);
