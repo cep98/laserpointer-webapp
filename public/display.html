@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>Laserpointer Display v3.9</title>
+  <title>Laserpointer Display v3.10</title>
   <style>
     body { margin:0; background:black; }
     canvas { display:block; margin:auto; background:black; }
@@ -14,7 +14,7 @@
   </style>
 </head>
 <body>
-  <div id="version">v3.9 (multi-user)</div>
+  <div id="version">v3.10 (multi-user)</div>
   <canvas id="canvas" width="1024" height="1024"></canvas>
   <script src="/socket.io/socket.io.js"></script>
   <script>
@@ -26,86 +26,75 @@
           CX     = c.width/2,
           CY     = c.height/2;
 
-    // Einstellungen (können via Admin überschrieben werden)
-    let MAX_H   = 20,
-        MAX_V   = 20,
-        SMOOTH  = 0.15;
+    let MAX_H   = 20, MAX_V = 20, SMOOTH = 0.15;
 
-    // Zustand pro Gerät
+    // Pro Gerät
     const alpha0Map   = {},
           beta0Map    = {},
           lastPos     = {},   // deviceId → { x, y }
-          lastColor   = {},   // deviceId → color string
-          segments    = [];   // alle Linien-Segmente
+          lastColor   = {},   // deviceId → HSL-String
+          lastLight   = {},   // deviceId → Numeric Lightness (%)
+          segments    = [];   // alle Linien
 
     ctx.lineCap  = "round";
     ctx.lineJoin = "round";
 
-    // Falls Admin live einstellt, hier Settings übernehmen:
     socket.on("updateSettings", ({ maxH, maxV, smooth }) => {
       if (typeof maxH   === "number") MAX_H  = maxH;
       if (typeof maxV   === "number") MAX_V  = maxV;
       if (typeof smooth === "number") SMOOTH = smooth;
     });
 
-    // Bewegungsevents aller Handys
     socket.on("motion", ({ alpha, beta, color, isDrawing, deviceId }) => {
-      if (!deviceId || typeof alpha !== "number" || typeof beta !== "number") return;
+      if (!deviceId || typeof alpha!=="number" || typeof beta!=="number") return;
 
-      // Kalibrieren beim ersten Zeichnen
+      // parse HSL lightness
+      const m = /hsl\\(\\s*\\d+\\s*,\\s*\\d+%\\s*,\\s*(\\d+)%\\s*\\)/.exec(color);
+      const light = m ? parseInt(m[1],10) : 50;
+      lastLight[deviceId] = light;
+      lastColor[deviceId] = color;
+
+      // Kalibrieren beim ersten Draw
       if (isDrawing && !(deviceId in alpha0Map)) {
         alpha0Map[deviceId] = alpha;
-        beta0Map[deviceId]  = beta;
-        // Starte in der Canvas-Mitte
-        lastPos[deviceId] = { x: CX, y: CY };
+        beta0Map [deviceId] = beta;
+        lastPos[deviceId]  = { x: CX, y: CY };
       }
-      // Bis kalibriert: nichts tun
       if (!(deviceId in alpha0Map)) return;
 
-      // Winkel-Delta mit Wrap-Around
       let dA = alpha - alpha0Map[deviceId];
-      if (dA > 180)  dA -= 360;
-      if (dA < -180) dA += 360;
-      let dB = beta - beta0Map[deviceId];
+      if (dA>180) dA-=360;
+      if (dA<-180)dA+=360;
+      const dB = beta - beta0Map[deviceId];
 
-      // Begrenzen
+      // clamp
       dA = Math.max(-MAX_H, Math.min(MAX_H, dA));
-      dB = Math.max(-MAX_V, Math.min(MAX_V, dB));
+      const cB = Math.max(-MAX_V, Math.min(MAX_V, dB));
 
-      // Auf Canvas mappen (invertiert, damit Rechtsneigung → Rechtsbewegung)
       const x = CX - (dA/MAX_H)*CX;
-      const y = CY - (dB/MAX_V)*CY;
+      const y = CY - (cB/MAX_V)*CY;
 
-      // Wenn Zeichnen aktiv: Segment hinzufügen
       if (isDrawing) {
         const prev = lastPos[deviceId];
-        segments.push({
-          x1: prev.x, y1: prev.y,
-          x2: x,      y2: y,
-          color, deviceId
-        });
+        segments.push({ x1:prev.x, y1:prev.y, x2:x, y2:y, color, deviceId });
       }
-      // Immer Position und Farbe updaten
-      lastPos[deviceId]   = { x, y };
-      lastColor[deviceId] = color;
+      lastPos[deviceId] = { x, y };
     });
 
-    // Canvas löschen
     socket.on("clear", () => {
       segments.length = 0;
-      ctx.clearRect(0, 0, c.width, c.height);
-      // Reset aller Positionen und Kalibrierung
-      for (let id in lastPos)    delete lastPos[id];
-      for (let id in alpha0Map)  delete alpha0Map[id];
-      for (let id in beta0Map)   delete beta0Map[id];
+      ctx.clearRect(0,0,c.width,c.height);
+      for (let k in lastPos)   delete lastPos[k];
+      for (let k in alpha0Map) delete alpha0Map[k];
+      for (let k in beta0Map)  delete beta0Map[k];
+      for (let k in lastLight) delete lastLight[k];
     });
 
-    // Animation-Loop: Linien + pulsierende Punkte zeichnen
     let pulse = 0, growing = true;
     function render() {
-      ctx.clearRect(0, 0, c.width, c.height);
+      ctx.clearRect(0,0,c.width,c.height);
 
-      // Alle Linien zeichnen
+      // Linien
       for (const s of segments) {
         ctx.strokeStyle = s.color;
         ctx.lineWidth   = 6;
@@ -115,18 +104,31 @@
         ctx.stroke();
       }
 
-      // Für jede aktive Position einen pulsierenden Punkt malen
+      // Pulsierende Punkte & optionaler weißer Ring
       pulse += growing ? 0.2 : -0.2;
-      if (pulse > 2) growing = false;
-      if (pulse < 0) growing = true;
+      if (pulse>2) growing = false;
+      if (pulse<0) growing = true;
 
-      for (const [id, pos] of Object.entries(lastPos)) {
-        const col = lastColor[id] || "#ffffff";
-        const r   = 4 + pulse;
+      for (const id in lastPos) {
+        const pos   = lastPos[id];
+        const col   = lastColor[id] || "#fff";
+        const light = lastLight[id] || 50;
+        const r     = 4 + pulse;
+
+        // Punkt
         ctx.beginPath();
         ctx.arc(pos.x, pos.y, r, 0, 2*Math.PI);
         ctx.fillStyle = col;
         ctx.fill();
+
+        // Wenn dunkel (<20%), dann weißen Ring
+        if (light < 20) {
+          ctx.beginPath();
+          ctx.arc(pos.x, pos.y, r+3, 0, 2*Math.PI);
+          ctx.strokeStyle = "#fff";
+          ctx.lineWidth   = 2;
+          ctx.stroke();
+        }
       }
 
       requestAnimationFrame(render);
