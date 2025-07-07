@@ -2,114 +2,37 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Laserpointer Display v3.0</title>
+  <title>Display</title>
   <style>
-    body {
+    html, body {
       margin: 0;
+      overflow: hidden;
       background: black;
     }
     canvas {
       display: block;
-      margin: auto;
       background: black;
-    }
-    .version {
-      position: absolute;
-      top: 10px;
-      left: 20px;
-      color: white;
-      font-family: sans-serif;
-      font-size: 14px;
     }
   </style>
 </head>
 <body>
-  <div class="version">v3.0</div>
   <canvas id="canvas" width="1024" height="1024"></canvas>
-
   <script src="/socket.io/socket.io.js"></script>
   <script>
-    const socket = io();
     const canvas = document.getElementById("canvas");
     const ctx = canvas.getContext("2d");
-    let points = [];
-    let lastX = null;
-    let lastY = null;
-    let pulseSize = 4;
-    let pulseDirection = 1;
+    const socket = io();
 
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-
-    socket.on("draw", ({ x, y, color, isStart }) => {
-      if (isStart) {
-        points = [];
-      }
-
-      points.push({ x, y });
-      lastX = x;
-      lastY = y;
-
-      if (points.length > 2) {
-        drawBezier(points[points.length - 3], points[points.length - 2], points[points.length - 1], color);
-      } else if (points.length === 2) {
-        drawLine(points[0], points[1], color);
-      }
+    socket.on("draw", data => {
+      ctx.fillStyle = data.color;
+      ctx.beginPath();
+      ctx.arc(data.x, data.y, 5, 0, Math.PI * 2);
+      ctx.fill();
     });
 
     socket.on("clear", () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      points = [];
-      lastX = null;
-      lastY = null;
     });
-
-    function drawLine(p1, p2, color) {
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 6;
-      ctx.beginPath();
-      ctx.moveTo(p1.x, p1.y);
-      ctx.lineTo(p2.x, p2.y);
-      ctx.stroke();
-    }
-
-    function drawBezier(p0, p1, p2, color) {
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 6;
-      ctx.beginPath();
-      ctx.moveTo(p0.x, p0.y);
-      ctx.quadraticCurveTo(p1.x, p1.y, p2.x, p2.y);
-      ctx.stroke();
-    }
-
-    function drawPulseDot() {
-      if (lastX !== null && lastY !== null) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.fillStyle = "white";
-        ctx.arc(lastX, lastY, pulseSize, 0, 2 * Math.PI);
-        ctx.fill();
-        ctx.restore();
-      }
-
-      pulseSize += pulseDirection * 0.1;
-      if (pulseSize > 5 || pulseSize < 3) {
-        pulseDirection *= -1;
-      }
-    }
-
-    function animate() {
-      // Nur den Punktbereich „drübermalen“
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      for (let i = 2; i < points.length; i++) {
-        drawBezier(points[i - 2], points[i - 1], points[i], ctx.strokeStyle);
-      }
-      drawPulseDot();
-      requestAnimationFrame(animate);
-    }
-
-    animate();
   </script>
 </body>
 </html>
