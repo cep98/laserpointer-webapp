@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Laserpointer Display v3.2</title>
+  <title>Laserpointer Display v3.4</title>
   <style>
     body { margin: 0; background: black; }
     canvas { display: block; margin: auto; background: black; }
@@ -14,94 +14,86 @@
   </style>
 </head>
 <body>
-  <div id="version">v3.2</div>
+  <div id="version">v3.4</div>
   <canvas id="canvas" width="1024" height="1024"></canvas>
-
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
-    const c = document.getElementById("canvas");
-    const ctx = c.getContext("2d");
-    const MAX_ANGLE = 20;
-    const CX = c.width / 2, CY = c.height / 2;
-
-    let lastX = null, lastY = null;
-    let segments = [];
-    let color = "#ff0000";
+    const c = document.getElementById("canvas"), ctx = c.getContext("2d");
+    const MAX_ANGLE = 20, CX = c.width/2, CY = c.height/2;
+    let lastX = null, lastY = null, color = "#ff0000";
     let calibrated = false, alpha0 = 0, beta0 = 0;
+    // für Glättung
+    let targetX = CX, targetY = CY;
+    let smoothX = CX, smoothY = CY;
+    const SMOOTH = 0.15; // 0..1, kleiner = stärker glätten
 
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
 
     socket.on("motion", ({ alpha, beta, color: ccol, isDrawing }) => {
-      if (typeof alpha !== "number" || typeof beta !== "number") return;
+      if (typeof alpha!=="number" || typeof beta!=="number") return;
       if (ccol) color = ccol;
 
-      // Kalibrierung beim ersten Zeichnen
+      // Kalibrieren beim ersten Drücken
       if (!calibrated && isDrawing) {
-        alpha0 = alpha;
-        beta0 = beta;
+        alpha0 = alpha; beta0 = beta;
         calibrated = true;
-        // Startpunkt in der Mitte
-        lastX = CX;
-        lastY = CY;
       }
       if (!calibrated) return;
 
       // relative Winkel
       let dA = alpha - alpha0;
-      let dB = beta - beta0;
-      if (dA > 180) dA -= 360;
-      if (dA < -180) dA += 360;
-
-      // Begrenzen
+      let dB = beta  - beta0;
+      if (dA>180) dA-=360; if (dA<-180) dA+=360;
       dA = Math.max(-MAX_ANGLE, Math.min(MAX_ANGLE, dA));
       dB = Math.max(-MAX_ANGLE, Math.min(MAX_ANGLE, dB));
 
       // invertierte Zuordnung
-      const x = CX - (dA / MAX_ANGLE) * CX;
-      const y = CY - (dB / MAX_ANGLE) * CY;
+      targetX = CX - (dA/MAX_ANGLE)*CX;
+      targetY = CY - (dB/MAX_ANGLE)*CY;
 
       if (isDrawing) {
         if (lastX !== null && lastY !== null) {
-          segments.push({ x1: lastX, y1: lastY, x2: x, y2: y, color });
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 6;
+          ctx.beginPath();
+          ctx.moveTo(smoothX, smoothY);
+          ctx.lineTo(targetX, targetY);
+          ctx.stroke();
         }
-        lastX = x;
-        lastY = y;
+        lastX = targetX; lastY = targetY;
       } else {
-        lastX = x;
-        lastY = y;
+        lastX = targetX; lastY = targetY;
       }
     });
 
     socket.on("clear", () => {
-      segments = [];
-      ctx.clearRect(0, 0, c.width, c.height);
+      ctx.clearRect(0,0,c.width,c.height);
       lastX = lastY = null;
       calibrated = false;
+      // reset smoothing
+      smoothX = targetX = CX;
+      smoothY = targetY = CY;
     });
 
     function render() {
-      ctx.clearRect(0, 0, c.width, c.height);
-      // gezeichnete Linien
-      for (const s of segments) {
-        ctx.strokeStyle = s.color;
-        ctx.lineWidth = 6;
-        ctx.beginPath();
-        ctx.moveTo(s.x1, s.y1);
-        ctx.lineTo(s.x2, s.y2);
-        ctx.stroke();
-      }
-      // pulsierender Punkt
+      // Glättung: smoothX nähert sich targetX, usw.
+      smoothX += (targetX - smoothX) * SMOOTH;
+      smoothY += (targetY - smoothY) * SMOOTH;
+
+      // Anzeige: pulsierender Punkt
       if (lastX !== null) {
-        const r = 4 + Math.sin(Date.now() / 150) * 2;
+        const r = 4 + Math.sin(Date.now()/150) * 2;
+        // Punkt auf geglätteter Position
         ctx.beginPath();
-        ctx.arc(lastX, lastY, r, 0, 2 * Math.PI);
+        ctx.arc(smoothX, smoothY, r, 0, 2*Math.PI);
         ctx.fillStyle = color;
         ctx.fill();
       }
       requestAnimationFrame(render);
     }
+
     render();
   </script>
 </body>
