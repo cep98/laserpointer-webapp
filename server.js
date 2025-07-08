@@ -1,80 +1,83 @@
+// server.js
 const express = require("express");
 const app     = express();
 const http    = require("http").createServer(app);
 const io      = require("socket.io")(http);
 
-// Statische Dateien ausliefern
+// statische Dateien aus /public
 app.use(express.static("public"));
 
-// Inaktivitäts-Timeout (5 Sekunden)
-const INACTIVITY_TIMEOUT = 5 * 1000;
-
-// clients: socketId → { ip, type, deviceId, lastMotion }
-const clients = {};
-
-// Funktion zum Senden der aktuellen Client-Liste an alle Admins
-function broadcastClients() {
-  const now = Date.now();
-  const list = Object.entries(clients).map(([socketId, info]) => ({
-    socketId,
-    ip:       info.ip,
-    deviceId: info.deviceId,
-    type:     info.type,
-    // active nur für Control-Clients, die innerhalb des Timeouts zuletzt motion gesendet haben
-    active:   info.type === "control" && (now - info.lastMotion) < INACTIVITY_TIMEOUT
-  }));
-  io.emit("client-list", list);
-}
+// State‐Tracking
+const roles          = new Map();   // socket.id → role
+const controls       = new Map();   // socket.id → deviceId
+let   displayOnline  = false;
 
 io.on("connection", socket => {
-  // Client initial registrieren
-  const ip = socket.handshake.address;
-  clients[socket.id] = {
-    ip,
-    type:       null,
-    deviceId:   null,
-    lastMotion: Date.now()
-  };
+  console.log("↗ Client verbunden:", socket.id);
 
-  // Rolle und Geräte-ID setzen
-  socket.on("identify", ({ role, deviceId }) => {
-    if (["control","display","admin"].includes(role)) {
-      clients[socket.id].type     = role;
-      clients[socket.id].deviceId = deviceId || null;
-      broadcastClients();
+  // 1) Alle Identify‐Events
+  socket.on("identify", info => {
+    roles.set(socket.id, info.role);
+
+    if (info.role === "control") {
+      // neues Handy
+      const dev = info.deviceId || socket.id;
+      controls.set(socket.id, dev);
+      io.emit("controls-status", Array.from(controls.values()));
+      console.log("✔ Control angemeldet:", dev);
+    }
+
+    if (info.role === "display") {
+      // Display ist da
+      displayOnline = true;
+      io.emit("display-status", { connected: true });
+      console.log("✔ Display angemeldet");
+    }
+
+    if (info.role === "admin") {
+      // Admin will Status
+      socket.emit("display-status", { connected: displayOnline });
+      socket.emit("controls-status", Array.from(controls.values()));
+      console.log("✔ Admin angemeldet, Status gesendet");
     }
   });
 
-  // Motion-Event: Zeitstempel aktualisieren und mitsenden
+  // 2) Bewegungs‐Events von Control → an alle Displays
   socket.on("motion", data => {
-    if (clients[socket.id]) {
-      clients[socket.id].lastMotion = Date.now();
-      const deviceId = clients[socket.id].deviceId;
-      io.emit("motion", { ...data, deviceId });
-    }
+    socket.broadcast.emit("motion", data);
   });
 
-  // Admin-Einstellungen weiterleiten
-  socket.on("updateSettings", settings => {
-    io.emit("updateSettings", settings);
-  });
-
-  // Canvas löschen
+  // 3) Canvas löschen
   socket.on("clear", () => {
     io.emit("clear");
   });
 
-  // Trennung: Client entfernen
+  // 4) Admin‐Einstellungen verteilen
+  socket.on("admin-settings", cfg => {
+    io.emit("updateSettings", cfg);
+  });
+
+  // 5) Aufräumen bei Disconnect
   socket.on("disconnect", () => {
-    delete clients[socket.id];
-    broadcastClients();
+    console.log("↘ Client getrennt:", socket.id);
+    const role = roles.get(socket.id);
+    roles.delete(socket.id);
+
+    if (role === "control") {
+      controls.delete(socket.id);
+      io.emit("controls-status", Array.from(controls.values()));
+      console.log("✖ Control getrennt");
+    }
+    if (role === "display") {
+      displayOnline = false;
+      io.emit("display-status", { connected: false });
+      console.log("✖ Display getrennt");
+    }
   });
 });
 
-// Periodisch jede Sekunde die Client-Liste senden
-setInterval(broadcastClients, 1000);
-
+// Server starten
 const PORT = process.env.PORT || 3000;
 http.listen(PORT, () => {
-  console.log(`Server läuft auf Port ${PORT}`);
+  console.log(`🚀 Server läuft auf Port ${PORT}`);
 });
