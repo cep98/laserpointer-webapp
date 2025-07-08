@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>Laserpointer Display v3.12</title>
+  <title>Laserpointer Display v3.13</title>
   <style>
     body { margin:0; background:black; }
     canvas { display:block; margin:auto; background:black; }
@@ -14,7 +14,7 @@
   </style>
 </head>
 <body>
-  <div id="version">v3.12 (multi-user + smoothing)</div>
+  <div id="version">v3.13 (dynamic width per segment)</div>
   <canvas id="canvas" width="1024" height="1024"></canvas>
   <script src="/socket.io/socket.io.js"></script>
   <script>
@@ -26,130 +26,151 @@
           CX   = c.width/2,
           CY   = c.height/2;
 
-    // Defaults (werden per Admin überschrieben)
-    let MAX_H   = 20,
-        MAX_V   = 20,
-        SMOOTH  = 0.15;
+    // Defaults (admin override möglich)
+    let MAX_H  = 20,
+        MAX_V  = 20,
+        SMOOTH = 0.15;
 
-    // Datenstrukturen pro Gerät
-    const alpha0Map   = {},        // Kalibrier-Nullpunkt alpha
-          beta0Map    = {},        // Kalibrier-Nullpunkt beta
-          rawPos      = {},        // deviceId → { x, y }
-          smoothPos   = {},        // deviceId → { x, y } geglättet
-          lastColor   = {},        // deviceId → color
-          lastLight   = {},        // deviceId → lightness %
-          segments    = [];        // alle Liniensegmente
-
-    ctx.lineCap  = "round";
-    ctx.lineJoin = "round";
-
-    // Admin-Einstellungen live übernehmen
     socket.on("updateSettings", ({ maxH, maxV, smooth }) => {
       if (typeof maxH   === "number") MAX_H  = maxH;
       if (typeof maxV   === "number") MAX_V  = maxV;
       if (typeof smooth === "number") SMOOTH = smooth;
     });
 
-    // Neue Bewegungsdaten
+    // Pro-Device State
+    const alpha0Map   = {},
+          beta0Map    = {},
+          rawPos      = {},
+          smoothPos   = {},
+          lastColor   = {},
+          lastLight   = {},
+          segments    = [],    // {x1,y1,x2,y2,color,w1,w2}
+          lastWidth   = {};    // deviceId → letzte End-Breite
+
+    ctx.lineCap  = "round";
+    ctx.lineJoin = "round";
+
+    function parseLight(hsl) {
+      const m = hsl.match(/hsl\(\s*\d+,\s*\d+%,\s*(\d+)%\)/);
+      return m ? +m[1] : 50;
+    }
+
+    socket.on("clear", () => {
+      segments.length = 0;
+      ctx.clearRect(0, 0, c.width, c.height);
+      [alpha0Map, beta0Map, rawPos, smoothPos, lastColor, lastLight, lastWidth]
+        .forEach(obj => Object.keys(obj).forEach(k => delete obj[k]));
+    });
+
     socket.on("motion", ({ alpha, beta, color, isDrawing, deviceId }) => {
-      if (!deviceId || typeof alpha!=="number" || typeof beta!=="number") return;
+      if (!deviceId || typeof alpha !== "number" || typeof beta !== "number") return;
+      const now = performance.now();
 
-      // Lightness aus HSL extrahieren
-      const m = color.match(/hsl\([^,]+,\s*[^,]+,\s*(\d+)%\)/);
-      const light = m ? parseInt(m[1],10) : 50;
-      lastLight[deviceId] = light;
+      // Farbe & Lightness
       lastColor[deviceId] = color;
+      lastLight[deviceId] = parseLight(color);
 
-      // Kalibrierung beim ersten Zeichnen
+      // Kalibrieren beim ersten Zeichnen
       if (isDrawing && !(deviceId in alpha0Map)) {
         alpha0Map[deviceId] = alpha;
         beta0Map [deviceId] = beta;
         rawPos   [deviceId] = { x: CX, y: CY };
         smoothPos[deviceId] = { x: CX, y: CY };
+        lastWidth[deviceId] = 8; // Startbreite
       }
       if (!(deviceId in alpha0Map)) return;
 
-      // Winkel-Delta + Wrap-Around
+      // Winkel-Delta + Wrap
       let dA = alpha - alpha0Map[deviceId];
       if (dA > 180)  dA -= 360;
       if (dA < -180) dA += 360;
       let dB = beta - beta0Map[deviceId];
 
-      // Begrenzen
+      // Clamp
       dA = Math.max(-MAX_H, Math.min(MAX_H, dA));
       dB = Math.max(-MAX_V, Math.min(MAX_V, dB));
 
-      // Mapping auf Canvas (invertiert)
+      // Auf Canvas mappen
       const x = CX - (dA / MAX_H) * CX;
       const y = CY - (dB / MAX_V) * CY;
 
-      // Linien-Segment, falls gezeichnet wird
-      if (isDrawing) {
-        const prev = rawPos[deviceId];
-        segments.push({
-          x1: prev.x, y1: prev.y,
-          x2: x,      y2: y,
-          color, deviceId
-        });
-      }
+      // Geschwindigkeit px/s
+      const prev = rawPos[deviceId];
+      const dx   = x - prev.x,
+            dy   = y - prev.y,
+            dt   = (now - (smoothPos[deviceId].t||now)) / 1000,
+            speed= dt>0 ? Math.hypot(dx,dy)/dt : 0;
+      smoothPos[deviceId].t = now;
 
-      // Rohdaten speichern
+      // speichern für nächstes Mal
       rawPos[deviceId] = { x, y };
+
+      if (isDrawing) {
+        // Map Speed → width 2..12px (oder andere Werte)
+        const threshold = 2000;
+        const norm = Math.min(1, speed/threshold);
+        const minW = 2, maxW = 12;
+        const w2   = maxW - (maxW - minW)*norm;
+        const w1   = lastWidth[deviceId] || w2;
+
+        segments.push({ x1: prev.x, y1: prev.y, x2: x, y2: y,
+                        color, w1, w2 });
+        lastWidth[deviceId] = w2;
+      }
     });
 
-    // Canvas löschen
-    socket.on("clear", () => {
-      segments.length = 0;
-      ctx.clearRect(0,0,c.width,c.height);
-      for (let id in rawPos)    delete rawPos[id];
-      for (let id in smoothPos) delete smoothPos[id];
-      for (let id in alpha0Map) delete alpha0Map[id];
-      for (let id in beta0Map)  delete beta0Map[id];
-      for (let id in lastLight) delete lastLight[id];
-    });
-
-    // Puls + Render-Loop
+    // Render-Loop
     let pulse = 0, growing = true;
     function render() {
-      ctx.clearRect(0,0,c.width,c.height);
+      ctx.clearRect(0, 0, c.width, c.height);
 
-      // 1) Linien zeichnen
+      // Jede Linie in feine Untersegmente zerlegen
       for (const s of segments) {
-        ctx.strokeStyle = s.color;
-        ctx.lineWidth   = 6;
-        ctx.beginPath();
-        ctx.moveTo(s.x1, s.y1);
-        ctx.lineTo(s.x2, s.y2);
-        ctx.stroke();
+        const dx = s.x2 - s.x1,
+              dy = s.y2 - s.y1,
+              dist = Math.hypot(dx,dy),
+              steps = Math.max(1, Math.ceil(dist/5));
+
+        let px = s.x1, py = s.y1;
+        for (let i = 1; i <= steps; i++) {
+          const t = i/steps,
+                tx = s.x1 + dx*t,
+                ty = s.y1 + dy*t,
+                w  = s.w1 + (s.w2 - s.w1)*t;
+
+          ctx.strokeStyle = s.color;
+          ctx.lineWidth   = w;
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.lineTo(tx, ty);
+          ctx.stroke();
+
+          px = tx; py = ty;
+        }
       }
 
-      // 2) Punkt-Glättung & Puls
+      // Pulsierende Punkte
       pulse += growing ? 0.2 : -0.2;
-      if (pulse > 2)  growing = false;
-      if (pulse < 0)  growing = true;
+      if (pulse > 2) growing = false;
+      if (pulse < 0) growing = true;
 
       for (const id in rawPos) {
-        const target = rawPos[id];
-        const smooth = smoothPos[id] = smoothPos[id] || { x:CX, y:CY };
+        const { x,y } = rawPos[id];
+        const col     = lastColor[id] || "#fff";
+        const light   = lastLight[id] || 50;
+        const wLast   = lastWidth[id] || 6;
+        const r       = wLast/2 + pulse;
 
-        // Glätten
-        smooth.x += (target.x - smooth.x) * SMOOTH;
-        smooth.y += (target.y - smooth.y) * SMOOTH;
-
-        const col   = lastColor[id] || "hsl(0,100%,50%)";
-        const light = lastLight[id] || 50;
-        const r     = 4 + pulse;
-
-        // Punkt zeichnen
+        // Punkt
         ctx.beginPath();
-        ctx.arc(smooth.x, smooth.y, r, 0, 2*Math.PI);
+        ctx.arc(x,y,r,0,2*Math.PI);
         ctx.fillStyle = col;
         ctx.fill();
 
         // Weißer Ring bei Low-Light
         if (light < 20) {
           ctx.beginPath();
-          ctx.arc(smooth.x, smooth.y, r + 3, 0, 2*Math.PI);
+          ctx.arc(x,y,r+3,0,2*Math.PI);
           ctx.strokeStyle = "#fff";
           ctx.lineWidth   = 3;
           ctx.stroke();
