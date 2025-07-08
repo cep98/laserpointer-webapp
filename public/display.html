@@ -3,211 +3,200 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>Laserpointer Display v4.0 (Debug)</title>
+  <title>Laserpointer Display v4.0 (Pixi+MeshLine)</title>
   <style>
     body { margin:0; background:#000; }
     #version {
       position:absolute; top:10px; left:10px;
-      color:#fff; font-family:sans-serif; font-size:14px; opacity:0.6;
-      z-index:10;
+      color:#fff; font-family:sans-serif; font-size:14px; opacity:0.6; z-index:10;
     }
     #canvas-container {
       width:1024px; height:1024px;
-      margin:auto; position:relative;
+      margin:auto;
+      position:relative;
       top:50%; transform:translateY(-50%);
     }
   </style>
 </head>
 <body>
-  <div id="version">v4.0 (Pixi+MeshLine – Debug)</div>
+  <div id="version">v4.0 (Pixi+MeshLine)</div>
   <div id="canvas-container"></div>
 
-  <!-- PixiJS & MeshLine -->
-  <script src="https://cdn.jsdelivr.net/npm/pixi.js@7.2.4/dist/browser/pixi.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/pixi-meshline@5.4.0/dist/pixi-meshline.umd.js"></script>
-  <!-- Socket.IO Client (CDN) -->
+  <!-- 1) PixiJS über CDNJS -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.2.4/pixi.min.js"></script>
+  <!-- 2) pixi-meshline über CDNJS -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi-meshline/5.4.0/pixi-meshline.umd.js"></script>
+  <!-- 3) Socket.IO Client -->
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 
   <script>
-  // ─────────────────────────────────────────────────────────────
-  // 1) Setup Pixi
-  const app = new PIXI.Application({
-    width: 1024, height: 1024,
-    backgroundColor: 0x000000,
-    antialias: true,
-    resolution: window.devicePixelRatio || 1
-  });
-  document.getElementById("canvas-container").appendChild(app.view);
+  // Warten bis die Bibliotheken geladen sind
+  window.addEventListener("load", () => {
+    // ───────────────────────────────────────────────
+    // PIXI Setup
+    const app = new PIXI.Application({
+      width: 1024, height: 1024,
+      backgroundColor: 0x000000,
+      antialias: true,
+      resolution: window.devicePixelRatio || 1
+    });
+    document.getElementById("canvas-container").appendChild(app.view);
 
-  const linesContainer = new PIXI.Container(),
-        pulseGraphics  = new PIXI.Graphics();
-  app.stage.addChild(linesContainer, pulseGraphics);
+    const linesContainer = new PIXI.Container(),
+          pulseGraphics  = new PIXI.Graphics();
+    app.stage.addChild(linesContainer, pulseGraphics);
 
-  // ─────────────────────────────────────────────────────────────
-  // 2) Socket.IO & Debug
-  const socket = io();  // uses CDN socket.io.js
+    // ───────────────────────────────────────────────
+    // Socket.IO & Debug
+    const socket = io();
+    socket.on("connect", () => {
+      console.log("✅ Socket.IO connected, id=", socket.id);
+      socket.emit("identify", { role:"display", deviceId:null });
+    });
+    socket.on("connect_error", err => {
+      console.error("❌ Socket.IO connect_error:", err);
+    });
+    socket.on("disconnect", () => {
+      console.warn("⚠️ Socket.IO disconnected");
+    });
 
-  socket.on("connect", () => {
-    console.log("✅ Socket.IO connected, id=", socket.id);
-    socket.emit("identify", { role:"display", deviceId: null });
-  });
-  socket.on("connect_error", err => {
-    console.error("❌ Socket.IO connect_error:", err);
-  });
-  socket.on("disconnect", () => {
-    console.warn("⚠️ Socket.IO disconnected");
-  });
+    // ───────────────────────────────────────────────
+    // Admin-Settings
+    let MAX_H=20, MAX_V=20, SMOOTH=0.15, MIN_W=5, MAX_W=12;
+    socket.on("updateSettings", cfg => {
+      if (typeof cfg.maxH   === "number") MAX_H  = cfg.maxH;
+      if (typeof cfg.maxV   === "number") MAX_V  = cfg.maxV;
+      if (typeof cfg.smooth === "number") SMOOTH = cfg.smooth;
+      if (typeof cfg.minW   === "number") MIN_W  = cfg.minW;
+      if (typeof cfg.maxW   === "number") MAX_W  = cfg.maxW;
+      console.log("⚙️ Settings updated:", {MAX_H,MAX_V,SMOOTH,MIN_W,MAX_W});
+    });
 
-  // ─────────────────────────────────────────────────────────────
-  // 3) Admin-Settings
-  let MAX_H=20, MAX_V=20, SMOOTH=0.15, MIN_W=5, MAX_W=12;
-  socket.on("updateSettings", cfg => {
-    if (typeof cfg.maxH   === "number") MAX_H  = cfg.maxH;
-    if (typeof cfg.maxV   === "number") MAX_V  = cfg.maxV;
-    if (typeof cfg.smooth === "number") SMOOTH = cfg.smooth;
-    if (typeof cfg.minW   === "number") MIN_W  = cfg.minW;
-    if (typeof cfg.maxW   === "number") MAX_W  = cfg.maxW;
-    console.log("⚙️ Settings updated:", {MAX_H,MAX_V,SMOOTH,MIN_W,MAX_W});
-  });
-
-  // ─────────────────────────────────────────────────────────────
-  // 4) State per Device
-  const state = {}; 
-  // state[id] = { alpha0,beta0, smooth:{x,y,t}, lastW, meshLine, material, mesh, lastColor, lastLight }
-
-  function parseLight(hsl){
-    const m = hsl.match(/,\s*(\d+)%\)/);
-    return m?+m[1]:50;
-  }
-
-  // ─────────────────────────────────────────────────────────────
-  // 5) Clear-Handler
-  socket.on("clear", () => {
-    console.log("🧹 clear canvas");
-    linesContainer.removeChildren();
-    pulseGraphics.clear();
-    for (let id in state) delete state[id];
-  });
-
-  // ─────────────────────────────────────────────────────────────
-  // 6) Motion-Handler
-  socket.on("motion", ({ alpha, beta, color, isDrawing, deviceId }) => {
-    if (typeof alpha !== "number" || !deviceId) return;
-    const now = performance.now(),
-          CX  = app.renderer.width/2,
-          CY  = app.renderer.height/2;
-
-    let s = state[deviceId];
-    if (!s) {
-      // initial state for this device
-      s = state[deviceId] = {
-        alpha0: null,
-        beta0: null,
-        smooth: { x: CX, y: CY, t: now },
-        lastW: (MIN_W+MAX_W)/2,
-        meshLine: new PIXI.mesh.MeshLine(),
-        material: null,
-        mesh: null,
-        lastColor: color,
-        lastLight: parseLight(color)
-      };
-      console.log("✨ new device state:", deviceId);
+    // ───────────────────────────────────────────────
+    // State pro Device
+    const state = {};
+    function parseLight(hsl){
+      const m = hsl.match(/,\s*(\d+)%\)/);
+      return m?+m[1]:50;
     }
 
-    // update color/light
-    s.lastColor = color;
-    s.lastLight = parseLight(color);
+    // ───────────────────────────────────────────────
+    // Clear-Handler
+    socket.on("clear", () => {
+      console.log("🧹 clear canvas");
+      linesContainer.removeChildren();
+      pulseGraphics.clear();
+      for (let id in state) delete state[id];
+    });
 
-    // new stroke? reset if was not drawing before
-    if (isDrawing && s.alpha0 === null) {
-      s.alpha0 = alpha;
-      s.beta0  = beta;
-      console.log(`🎯 calibrated ${deviceId} at α=${alpha.toFixed(1)},β=${beta.toFixed(1)}`);
-    }
-    if (s.alpha0 === null) return;
+    // ───────────────────────────────────────────────
+    // Motion-Handler
+    socket.on("motion", ({ alpha, beta, color, isDrawing, deviceId }) => {
+      if (typeof alpha !== "number" || !deviceId) return;
+      const now = performance.now(),
+            CX  = app.renderer.width/2,
+            CY  = app.renderer.height/2;
 
-    // angle delta + wrap
-    let dA = alpha - s.alpha0;
-    if (dA > 180)  dA -= 360;
-    if (dA < -180) dA += 360;
-    let dB = beta - s.beta0;
-    // clamp
-    dA = Math.max(-MAX_H, Math.min(MAX_H, dA));
-    dB = Math.max(-MAX_V, Math.min(MAX_V, dB));
-
-    // map to canvas
-    const x = CX - (dA/MAX_H)*CX,
-          y = CY - (dB/MAX_V)*CY;
-
-    // smoothing (for pulse)
-    const sp = s.smooth;
-    sp.x += (x - sp.x)*SMOOTH;
-    sp.y += (y - sp.y)*SMOOTH;
-
-    // compute speed
-    const dt = (now - sp.t)/1000;
-    const dx = sp.x - (s.prevX||sp.x),
-          dy = sp.y - (s.prevY||sp.y),
-          speed = dt>0?Math.hypot(dx,dy)/dt:0;
-    sp.t = now; s.prevX = sp.x; s.prevY = sp.y;
-
-    // drawing
-    if (isDrawing) {
-      // width interpolation
-      const norm = Math.min(1, speed/2000);
-      const w2 = MAX_W - (MAX_W - MIN_W)*norm,
-            w1 = s.lastW;
-      s.lastW  = w2;
-
-      // init MeshLine & material once
-      if (!s.material) {
-        const colHex = PIXI.utils.string2hex(color);
-        s.material = new PIXI.mesh.MeshLineMaterial({
-          color: colHex,
-          lineWidth: w2,
-          resolution: { x:1024, y:1024 }
-        });
-        s.mesh = new PIXI.Mesh(s.meshLine, s.material);
-        linesContainer.addChild(s.mesh);
+      // init state if needed
+      let s = state[deviceId];
+      if (!s) {
+        s = state[deviceId] = {
+          alpha0:null, beta0:null,
+          smooth:{ x:CX, y:CY, t:now },
+          lastW:(MIN_W+MAX_W)/2,
+          meshLine:new PIXI.mesh.MeshLine(),
+          material:null, mesh:null,
+          lastColor:color, lastLight:parseLight(color)
+        };
+        console.log("✨ new device:", deviceId);
       }
 
-      // append points & widths
-      const pts    = s.meshLine.points.concat([sp.x, sp.y]);
-      const widths = (s.meshLine.widths||[]).concat([w1, w2]);
-      s.meshLine.setPoints(pts, false, widths);
-      s.material.uniforms.lineWidth = w2;
-    }
-  });
+      // update color/light
+      s.lastColor = color;
+      s.lastLight = parseLight(color);
 
-  // ─────────────────────────────────────────────────────────────
-  // 7) Puls-Loop
-  let pulse=0, grow=true;
-  app.ticker.add(() => {
-    pulse += grow?0.2:-0.2;
-    if (pulse>2) grow=false;
-    if (pulse<0) grow=true;
-
-    pulseGraphics.clear();
-
-    for (let id in state) {
-      const s   = state[id],
-            sp  = s.smooth,
-            col = PIXI.utils.string2hex(s.lastColor||"#fff"),
-            light = s.lastLight||50,
-            r   = s.lastW/2 + pulse;
-
-      // fill
-      pulseGraphics.beginFill(col);
-      pulseGraphics.drawCircle(sp.x, sp.y, r);
-      pulseGraphics.endFill();
-
-      // white ring if dark
-      if (light < 20) {
-        pulseGraphics.lineStyle(3, 0xffffff, 1);
-        pulseGraphics.drawCircle(sp.x, sp.y, r+3);
+      // calibrate on first draw
+      if (isDrawing && s.alpha0===null) {
+        s.alpha0 = alpha;
+        s.beta0  = beta;
+        console.log(`🎯 calibrated ${deviceId} α=${alpha.toFixed(1)},β=${beta.toFixed(1)}`);
       }
-    }
-  });
+      if (s.alpha0===null) return;
+
+      // delta + wrap
+      let dA = alpha - s.alpha0;
+      if (dA>180)   dA-=360;
+      if (dA<-180)  dA+=360;
+      let dB = beta - s.beta0;
+      dA = Math.max(-MAX_H,Math.min(MAX_H,dA));
+      dB = Math.max(-MAX_V,Math.min(MAX_V,dB));
+
+      // map to canvas
+      const x = CX - (dA/MAX_H)*CX,
+            y = CY - (dB/MAX_V)*CY;
+
+      // smoothing
+      const sp = s.smooth;
+      sp.x += (x-sp.x)*SMOOTH;
+      sp.y += (y-sp.y)*SMOOTH;
+
+      // speed
+      const dt = (now-sp.t)/1000,
+            dx = sp.x - (s.prevX||sp.x),
+            dy = sp.y - (s.prevY||sp.y),
+            speed = dt>0?Math.hypot(dx,dy)/dt:0;
+      sp.t = now; s.prevX = sp.x; s.prevY = sp.y;
+
+      // drawing
+      if (isDrawing) {
+        const norm = Math.min(1, speed/2000),
+              w2   = MAX_W - (MAX_W-MIN_W)*norm,
+              w1   = s.lastW;
+        s.lastW = w2;
+
+        // create material/mesh once
+        if (!s.material) {
+          const colHex = PIXI.utils.string2hex(color);
+          s.material = new PIXI.mesh.MeshLineMaterial({
+            color: colHex,
+            lineWidth: w2,
+            resolution: { x:1024, y:1024 }
+          });
+          s.mesh = new PIXI.Mesh(s.meshLine, s.material);
+          linesContainer.addChild(s.mesh);
+        }
+
+        // append points & widths
+        const pts    = s.meshLine.points.concat([sp.x, sp.y]);
+        const widths = (s.meshLine.widths||[]).concat([w1, w2]);
+        s.meshLine.setPoints(pts, false, widths);
+        s.material.uniforms.lineWidth = w2;
+      }
+    });
+
+    // ───────────────────────────────────────────────
+    // Puls-Loop
+    let pulse=0, grow=true;
+    app.ticker.add(() => {
+      pulse += grow?0.2:-0.2;
+      if (pulse>2) grow=false;
+      if (pulse<0) grow=true;
+      pulseGraphics.clear();
+      for (let id in state) {
+        const s = state[id], sp=s.smooth,
+              col = PIXI.utils.string2hex(s.lastColor||"#fff"),
+              light = s.lastLight||50,
+              r = s.lastW/2 + pulse;
+        pulseGraphics.beginFill(col);
+        pulseGraphics.drawCircle(sp.x, sp.y, r);
+        pulseGraphics.endFill();
+        if (light<20) {
+          pulseGraphics.lineStyle(3,0xffffff);
+          pulseGraphics.drawCircle(sp.x, sp.y, r+3);
+        }
+      }
+    });
+  }); // window.load
   </script>
 </body>
 </html>
