@@ -3,116 +3,167 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>Laserpointer Display – Spline</title>
+  <title>Laserpointer Display v3.13+</title>
   <style>
-    body { margin:0; background:#000 }
-    canvas { display:block; margin:auto; background:#000 }
+    body { margin:0; background:black; }
+    canvas { display:block; margin:auto; background:black; }
+    #version {
+      position:absolute; top:10px; left:10px;
+      color:white; font-family:sans-serif; font-size:14px; opacity:0.6;
+    }
   </style>
 </head>
 <body>
+  <div id="version">v3.13+</div>
   <canvas id="canvas" width="1024" height="1024"></canvas>
+
   <script src="/socket.io/socket.io.js"></script>
   <script>
-    const socket = io();
-    const c      = document.getElementById('canvas'),
-          ctx    = c.getContext('2d'),
-          CX     = c.width/2, CY = c.height/2;
+  const socket = io();
+  socket.emit("identify", { role:"display", deviceId:null });
 
-    // Admin-Settings (werden per Admin überschrieben)
-    let MAX_H=20, MAX_V=20, SMOOTH=0.15, MIN_W=5, MAX_W=12;
-    socket.on('updateSettings',cfg=>{
-      if(typeof cfg.maxH==='number') MAX_H=cfg.maxH;
-      if(typeof cfg.maxV==='number') MAX_V=cfg.maxV;
-      if(typeof cfg.smooth==='number')SMOOTH=cfg.smooth;
-      if(typeof cfg.minW==='number') MIN_W=cfg.minW;
-      if(typeof cfg.maxW==='number') MAX_W=cfg.maxW;
-    });
+  const canvas = document.getElementById("canvas"),
+        ctx    = canvas.getContext("2d"),
+        CX     = canvas.width/2,
+        CY     = canvas.height/2;
 
-    // State pro Device
-    const alpha0={}, beta0={},
-          points={};// deviceId → Array<{x,y,t,color}> (max Länge ~10)
+  // Runden Kappen und Verbindungen
+  ctx.lineCap  = "round";
+  ctx.lineJoin = "round";
 
-    // Lightness-Parser
-    function getLight(hsl){
-      const m=hsl.match(/,\s*(\d+)%\)/);
-      return m?+m[1]:50;
+  // Admin-Overrides
+  let MAX_H=20, MAX_V=20, SMOOTH=0.15, MIN_W=5, MAX_W=12;
+  socket.on("updateSettings", ({maxH,maxV,smooth,minW,maxW})=>{
+    if(typeof maxH==="number") MAX_H=maxH;
+    if(typeof maxV==="number") MAX_V=maxV;
+    if(typeof smooth==="number")SMOOTH=smooth;
+    if(typeof minW==="number") MIN_W=minW;
+    if(typeof maxW==="number") MAX_W=maxW;
+  });
+
+  // State pro Device
+  const alpha0     = {},    // Kalibriernullpunkt
+        beta0      = {},
+        lastW      = {},    // letzte End-breite
+        lastDraw   = {},    // letzter draw-Zustand (um newStroke zu erkennen)
+        smoothPos  = {},    // glatte Pos für Pulse
+        lastColor  = {},    // Farbe
+        lastLight  = {};    // Helligkeit für Ring
+
+  // Puls-Werte
+  let pulse=0, growing=true;
+
+  // Light-Parser
+  function parseLight(hsl){
+    const m=hsl.match(/,\s*(\d+)%\)/);
+    return m?+m[1]:50;
+  }
+
+  socket.on("clear", ()=>{
+    ctx.clearRect(0,0,1024,1024);
+    // reset State
+    [alpha0,beta0,lastW,lastDraw,smoothPos,lastColor,lastLight]
+      .forEach(o=>Object.keys(o).forEach(k=>delete o[k]));
+  });
+
+  socket.on("motion", ({alpha,beta,color,isDrawing,deviceId})=>{
+    if(typeof alpha!=="number"||!deviceId) return;
+    const now = performance.now();
+
+    // Farbe & Light
+    lastColor[deviceId] = color;
+    lastLight[deviceId] = parseLight(color);
+
+    // New stroke? (lift & press)
+    if(isDrawing && !lastDraw[deviceId]){
+      // reset glatte Position und letzten Width
+      smoothPos[deviceId] = { x:CX, y:CY, t:now };
+      lastW[deviceId]     = (MIN_W+MAX_W)/2;
     }
+    lastDraw[deviceId] = isDrawing;
 
-    // Receive clear
-    socket.on('clear',()=>{
-      ctx.clearRect(0,0,c.width,c.height);
-      for(let k in points) points[k]=[];
-    });
-
-    // Catmull-Rom Interpolator
-    function catmullRom(t,p0,p1,p2,p3){
-      return 0.5*(
-        (2*p1) +
-        (-p0 + p2)*t +
-        (2*p0 -5*p1 +4*p2 -p3)*t*t +
-        (-p0 +3*p1 -3*p2 +p3)*t*t*t
-      );
+    // Kalibrierung beim allerersten Draw
+    if(isDrawing && !(deviceId in alpha0)){
+      alpha0[deviceId]   = alpha;
+      beta0 [deviceId]   = beta;
+      smoothPos[deviceId] = { x:CX, y:CY, t:now };
+      lastW[deviceId]    = (MIN_W+MAX_W)/2;
+      return;
     }
+    if(!(deviceId in alpha0)) return;
 
-    // draw spline zwischen vier Punkten
-    function drawSpline(pts,color,w1,w2){
-      const steps = 20; // je 20 Unterteilungen pro Segment
-      for(let i=1;i<pts.length-2;i++){
-        const p0=pts[i-1], p1=pts[i], p2=pts[i+1], p3=pts[i+2];
-        for(let s=0; s<steps; s++){
-          const t0 = s/steps, t1=(s+1)/steps;
-          const x0 = catmullRom(t0,p0.x,p1.x,p2.x,p3.x),
-                y0 = catmullRom(t0,p0.y,p1.y,p2.y,p3.y),
-                x1 = catmullRom(t1,p0.x,p1.x,p2.x,p3.x),
-                y1 = catmullRom(t1,p0.y,p1.y,p2.y,p3.y),
-                w  = w1 + (w2 - w1)*(s/steps);
-          ctx.strokeStyle = color;
-          ctx.lineWidth   = w;
-          ctx.beginPath();
-          ctx.moveTo(x0,y0);
-          ctx.lineTo(x1,y1);
-          ctx.stroke();
-        }
-      }
-    }
+    // Winkel → delta + wrap-around
+    let dA = alpha - alpha0[deviceId];
+    if(dA > 180)  dA -= 360;
+    if(dA < -180) dA += 360;
+    let dB = beta - beta0[deviceId];
+    // clamp
+    dA = Math.max(-MAX_H, Math.min(MAX_H, dA));
+    dB = Math.max(-MAX_V, Math.min(MAX_V, dB));
+    // map to canvas coords
+    const x = CX - (dA / MAX_H) * CX;
+    const y = CY - (dB / MAX_V) * CY;
 
-    socket.on('motion',({alpha,beta,color,isDrawing,deviceId})=>{
-      if(!deviceId||typeof alpha!=='number')return;
-      const now=performance.now();
-      const arr = points[deviceId]||[];
-      // Kalibrieren
-      if(isDrawing && !alpha0[deviceId]){
-        alpha0[deviceId]=alpha;
-        beta0 [deviceId]=beta;
-      }
-      if(!alpha0[deviceId]) return;
+    // smoothing (für Pulse)
+    const sp = smoothPos[deviceId];
+    sp.x += (x - sp.x) * SMOOTH;
+    sp.y += (y - sp.y) * SMOOTH;
 
-      // Map Winkel→Canvas
-      let dA=alpha-alpha0[deviceId]; if(dA>180)dA-=360; if(dA<-180)dA+=360;
-      let dB=beta-beta0[deviceId];
-      dA=Math.max(-MAX_H,Math.min(MAX_H,dA));
-      dB=Math.max(-MAX_V,Math.min(MAX_V,dB));
-      const x= CX - (dA/MAX_H)*CX;
-      const y= CY - (dB/MAX_V)*CY;
+    // Geschwindigkeit px/s
+    const dt   = (now - sp.t)/1000;
+    const dx   = x - sp.x;
+    const dy   = y - sp.y;
+    const speed= dt>0?Math.hypot(dx,dy)/dt:0;
+    sp.t = now;
 
-      // Geschwindigkeit
-      const prev= arr[arr.length-1]||{x,y,t:now};
-      const dt   = (now-prev.t)/1000;
-      const speed= dt>0?Math.hypot(x-prev.x,y-prev.y)/dt:0;
+    // Strichstärke
+    if(isDrawing){
       const norm = Math.min(1, speed/2000);
-      const w2   = MAX_W - (MAX_W-MIN_W)*norm,
-            w1   = prev.w2||w2;
+      const w2   = MAX_W - (MAX_W - MIN_W)*norm;
+      const w1   = lastW[deviceId];
+      // zeichnen
+      ctx.strokeStyle = color;
+      ctx.lineWidth   = w1;
+      ctx.beginPath();
+      ctx.moveTo(sp.x - dx, sp.y - dy);
+      ctx.lineTo(sp.x, sp.y);
+      ctx.stroke();
+      lastW[deviceId] = w2;
+    }
+  });
 
-      // push neues Kontroll-Punkt-Objekt
-      arr.push({x,y,t:now,color,w1,w2});
-      if(arr.length>10) arr.shift(); // max 10 Punkte
-      points[deviceId] = arr;
+  // Puls und Render-Loop
+  ;(function render(){
+    // Pulse aktualisieren
+    pulse += growing?0.2:-0.2;
+    if(pulse>2) growing=false;
+    if(pulse<0) growing=true;
 
-      // wenn wir zeichnen, spline zeichnen
-      if(isDrawing && arr.length>=4){
-        drawSpline(arr, color, w1, w2);
+    // Pulsing-Punkt für jedes Gerät zeichnen
+    for(const id in smoothPos){
+      const {x,y} = smoothPos[id];
+      const col   = lastColor[id] || "#fff";
+      const light = lastLight[id] || 50;
+      const r     = lastW[id]/2 + pulse;
+
+      // Fill circle
+      ctx.beginPath();
+      ctx.fillStyle = col;
+      ctx.arc(x,y, r, 0, Math.PI*2);
+      ctx.fill();
+
+      // Weißer Ring
+      if(light<20){
+        ctx.beginPath();
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth   = 3;
+        ctx.arc(x,y, r+3, 0, Math.PI*2);
+        ctx.stroke();
       }
-    });
+    }
+
+    requestAnimationFrame(render);
+  })();
   </script>
 </body>
 </html>
