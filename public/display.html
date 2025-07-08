@@ -3,163 +3,109 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>Laserpointer Display (PixiJS)</title>
+  <title>Laserpointer Display</title>
   <style>
-    body { margin:0; background:#000; display:flex; justify-content:center; align-items:center; height:100vh; }
-    #version {
-      position:absolute; top:10px; left:10px;
-      color:white; font-family:sans-serif; font-size:14px; opacity:0.6;
-      z-index:10;
-    }
-    #canvas-container { width:1024px; height:1024px; }
+    body { margin:0; background:#000; }
+    canvas { display:block; margin:auto; background:#000; }
+    #version{ position:absolute; top:10px; left:10px; color:#fff; opacity:0.6; }
   </style>
 </head>
 <body>
-  <div id="version">v3.x (PixiJS)</div>
-  <div id="canvas-container"></div>
+  <div id="version">v3.x (Canvas2D)</div>
+  <canvas id="canvas" width="1024" height="1024"></canvas>
 
-  <!-- PIXI.js von CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/pixi.js@7.2.4/dist/browser/pixi.min.js"></script>
-  <!-- Socket.IO Client -->
   <script src="/socket.io/socket.io.js"></script>
-
   <script>
-    // 1) App aufsetzen
-    const app = new PIXI.Application({
-      width: 1024,
-      height: 1024,
-      backgroundColor: 0x000000,
-      antialias: true,
-      resolution: window.devicePixelRatio || 1
-    });
-    document.getElementById("canvas-container").appendChild(app.view);
-
-    // zwei Graphics: eines für Segmente, eines für Puls-Punkt
-    const segmentG = new PIXI.Graphics();
-    const pulseG   = new PIXI.Graphics();
-    app.stage.addChild(segmentG, pulseG);
-
-    // 2) State und Defaults
     const socket = io();
     socket.emit("identify", { role:"display", deviceId:null });
 
-    let MAX_H   = 20,
-        MAX_V   = 20,
-        SMOOTH  = 0.15,
-        MIN_W   = 5,
-        MAX_W   = 12;
+    const canvas = document.getElementById("canvas"),
+          ctx    = canvas.getContext("2d"),
+          CX     = canvas.width/2,
+          CY     = canvas.height/2;
 
-    // live-Settings vom Admin
-    socket.on("updateSettings", cfg => {
-      if (typeof cfg.maxH   === "number") MAX_H  = cfg.maxH;
-      if (typeof cfg.maxV   === "number") MAX_V  = cfg.maxV;
-      if (typeof cfg.smooth === "number") SMOOTH = cfg.smooth;
-      if (typeof cfg.minW   === "number") MIN_W  = cfg.minW;
-      if (typeof cfg.maxW   === "number") MAX_W  = cfg.maxW;
+    // Default-Settings (vom Admin überschrieben)
+    let MAX_H = 20, MAX_V = 20, SMOOTH=0.15, MIN_W=5, MAX_W=12;
+
+    socket.on("updateSettings", ({ maxH, maxV, smooth, minW, maxW }) => {
+      if(typeof maxH==="number") MAX_H=safe(maxH);
+      if(typeof maxV==="number") MAX_V=safe(maxV);
+      if(typeof smooth==="number")SMOOTH=smooth;
+      if(typeof minW==="number") MIN_W=minW;
+      if(typeof maxW==="number") MAX_W=maxW;
     });
+    function safe(n){ return isNaN(n)?20:n; }
 
-    // pro Gerät
-    const alpha0     = {},
-          beta0      = {},
-          rawPos     = {},
-          smoothPos  = {},
-          lastTime   = {},
-          lastColor  = {},
-          lastLight  = {},
-          lastWidth  = {};
+    let alpha0={}, beta0={}, rawPos={}, smoothPos={}, lastTime={}, lastColor={}, lastLight={}, lastW={};
 
-    // Hilfsfunktion
-    function parseLight(hsl) {
-      const m = hsl.match(/hsl\(\s*\d+,\s*\d+%,\s*(\d+)%\s*\)/);
-      return m ? +m[1] : 50;
+    function parseLight(hsl){
+      const m = hsl.match(/hsl\(\s*\d+,\s*\d+%,\s*(\d+)%\)/);
+      return m?+m[1]:50;
     }
 
-    // 3) Motion-Handler
-    socket.on("motion", ({ alpha, beta, color, isDrawing, deviceId }) => {
-      if (!deviceId || typeof alpha!=="number") return;
-      const now = performance.now();
-      const CX  = app.renderer.width/2;
-      const CY  = app.renderer.height/2;
-
-      // Farbe & Helligkeit merken
-      lastColor[deviceId]  = color;
-      lastLight[deviceId]  = parseLight(color);
-
-      // Kalibrierung beim ersten Draw
-      if (isDrawing && !(deviceId in alpha0)) {
-        alpha0[deviceId]    = alpha;
-        beta0 [deviceId]    = beta;
-        rawPos[deviceId]    = { x:CX, y:CY };
-        smoothPos[deviceId] = { x:CX, y:CY, t: now };
-        lastWidth[deviceId] = (MIN_W+MAX_W)/2;
-      }
-      if (!(deviceId in alpha0)) return;
-
-      // Delta & Wrap
-      let dA = alpha - alpha0[deviceId];
-      if (dA > 180)  dA -= 360;
-      if (dA < -180) dA += 360;
-      let dB = beta  - beta0 [deviceId];
-
-      // Clamp
-      dA = Math.max(-MAX_H, Math.min(MAX_H, dA));
-      dB = Math.max(-MAX_V, Math.min(MAX_V, dB));
-
-      // Map auf Display
-      const x = CX - (dA / MAX_H) * CX;
-      const y = CY - (dB / MAX_V) * CY;
-
-      // smoothing
-      const sp = smoothPos[deviceId];
-      sp.x += (x - sp.x) * SMOOTH;
-      sp.y += (y - sp.y) * SMOOTH;
-
-      // Geschwindigkeit (px/s)
-      const dt    = (now - sp.t) / 1000;
-      const dx    = sp.x - rawPos[deviceId].x;
-      const dy    = sp.y - rawPos[deviceId].y;
-      const speed = dt>0 ? Math.hypot(dx,dy)/dt : 0;
-      sp.t = now;
-
-      // Rohkoords speichern
-      rawPos[deviceId] = { x, y };
-
-      if (isDrawing) {
-        // Breite je Speed
-        const norm = Math.min(1, speed / 2000);
-        const w2   = MAX_W - (MAX_W - MIN_W)*norm;
-        const w1   = lastWidth[deviceId];
-        lastWidth[deviceId] = w2;
-
-        // in Pixi zeichnen: Segment
-        const colHex = PIXI.Color.fromHexString(color).toNumber();
-        segmentG.lineStyle(w1, colHex, 1);
-        segmentG.moveTo(sp.x - (sp.x-x), sp.y - (sp.y-y));
-        segmentG.lineTo(sp.x, sp.y);
-      }
+    socket.on("clear",()=>{
+      ctx.clearRect(0,0,1024,1024);
+      [alpha0,beta0,rawPos,smoothPos,lastTime,lastColor,lastLight,lastW]
+        .forEach(o=>Object.keys(o).forEach(k=>delete o[k]));
     });
 
-    // 4) Render-Loop für Puls
-    let pulse = 0, grow = true;
-    app.ticker.add(() => {
-      pulse += grow ? 0.2 : -0.2;
-      if (pulse > 2) grow = false;
-      if (pulse < 0) grow = true;
+    socket.on("motion",({alpha,beta,color,isDrawing,deviceId})=>{
+      if(!deviceId||typeof alpha!=="number")return;
+      const now=performance.now();
+      lastColor[deviceId]=color;
+      lastLight[deviceId]=parseLight(color);
 
-      pulseG.clear();
-      for (let id in smoothPos) {
-        const { x,y } = smoothPos[id];
-        const baseW   = lastWidth[id] || ((MIN_W+MAX_W)/2);
-        const r       = baseW/2 + pulse;
-        // Punkt
-        pulseG.beginFill(PIXI.utils.string2hex(lastColor[id]||"#ffffff"));
-        pulseG.drawCircle(x, y, r);
-        // Low-Light Weißring
-        if ((lastLight[id]||50) < 20) {
-          pulseG.lineStyle(3, 0xffffff, 1);
-          pulseG.drawCircle(x, y, r+3);
-        }
+      // Kalibrierung
+      if(isDrawing && !(deviceId in alpha0)){
+        alpha0[deviceId]=alpha; beta0[deviceId]=beta;
+        rawPos[deviceId]={x:CX,y:CY};
+        smoothPos[deviceId]={x:CX,y:CY,t:now};
+        lastTime[deviceId]=now;
+        lastW[deviceId]=(MIN_W+MAX_W)/2;
       }
+      if(!(deviceId in alpha0))return;
+
+      // Winkel-Delta + Wrap
+      let dA=alpha-alpha0[deviceId];
+      if(dA>180)dA-=360;
+      if(dA<-180)dA+=360;
+      let dB=beta-beta0[deviceId];
+      dA=Math.max(-MAX_H,Math.min(MAX_H,dA));
+      dB=Math.max(-MAX_V,Math.min(MAX_V,dB));
+
+      // Map
+      const x = CX-(dA/MAX_H)*CX;
+      const y = CY-(dB/MAX_V)*CY;
+
+      // smoothing
+      const sp=smoothPos[deviceId];
+      sp.x+=(x-sp.x)*SMOOTH; sp.y+=(y-sp.y)*SMOOTH;
+
+      // speed
+      const dt=(now-sp.t)/1000,
+            dx=sp.x-rawPos[deviceId].x,
+            dy=sp.y-rawPos[deviceId].y,
+            speed= dt>0?Math.hypot(dx,dy)/dt:0;
+      sp.t=now;
+
+      rawPos[deviceId]={x,y};
+
+      if(isDrawing){
+        const norm=Math.min(1,speed/2000),
+              w2  = MAX_W-(MAX_W-MIN_W)*norm,
+              w1  = lastW[deviceId];
+        // Stück zeichnen
+        ctx.strokeStyle=color;
+        ctx.lineWidth= w1;
+        ctx.beginPath();
+        ctx.moveTo(sp.x-(sp.x-x), sp.y-(sp.y-y));
+        ctx.lineTo(sp.x, sp.y);
+        ctx.stroke();
+        lastW[deviceId]=w2;
+      }
+
+      // Puls-Punkt
+      // (können wir genau wie vorher implementieren)
     });
   </script>
 </body>
