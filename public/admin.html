@@ -3,75 +3,72 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>Admin</title>
+  <title>Admin Panel v3.9</title>
   <style>
-    body { background:#111; color:#eee; font-family:sans-serif; padding:20px }
-    .status { margin-bottom:10px; }
-    .controls { margin-bottom:20px; }
-    label, input { display:block; margin:8px 0; }
-    input[type=range], input[type=number] { width:100%; max-width:300px; }
-    button { margin-top:12px; padding:8px 16px; background:red; border:none; color:#fff; cursor:pointer; }
+    body { margin:0; padding:20px; background:#111; color:#fff; font-family:sans-serif }
+    .setting { margin:15px 0 }
+    label { display:inline-block; width:220px }
+    input { width:100px }
+    #clear { padding:8px 16px; background:#c33; border:none; color:#fff; cursor:pointer }
   </style>
 </head>
 <body>
-  <div class="status">
-    Display: <span id="disp-status" style="color:orange">unbekannt</span>
-  </div>
-  <div class="controls">
-    Handys:
-    <ul id="controls-list"><li>keine</li></ul>
-  </div>
+  <h1>Admin Panel v3.9</h1>
 
-  <label>Max. Winkel horizontal (°):<input id="horiz" type="number" value="20"/></label>
-  <label>Max. Winkel vertikal (°):  <input id="vert"  type="number" value="20"/></label>
-  <label>Glättung (%):           <input id="smooth" type="range" min="0" max="100" value="15"/></label>
-  <label>Min. Strichstärke (px):  <input id="minW" type="number" min="1" max="50" value="5"/></label>
-  <label>Max. Strichstärke (px):  <input id="maxW" type="number" min="1" max="50" value="12"/></label>
+  <div class="setting">
+    <label for="maxH">Max. Winkel horizontal (°)</label>
+    <input id="maxH" type="number" value="20" min="1" max="180"/>
+  </div>
+  <div class="setting">
+    <label for="maxV">Max. Winkel vertikal (°)</label>
+    <input id="maxV" type="number" value="20" min="1" max="180"/>
+  </div>
+  <div class="setting">
+    <label for="minW">Min. Strichstärke (px)</label>
+    <input id="minW" type="number" value="2" min="1" max="50"/>
+  </div>
+  <div class="setting">
+    <label for="maxW">Max. Strichstärke (px)</label>
+    <input id="maxW" type="number" value="12" min="1" max="100"/>
+  </div>
+  <div class="setting">
+    <label for="smooth">Glättung (0–1, 0 = Maximalglättung)</label>
+    <input id="smooth" type="number" step="0.01" min="0" max="1" value="0.15"/>
+  </div>
 
   <button id="clear">Canvas löschen</button>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
-    const socket = io();
-    socket.emit("identify",{role:"admin",deviceId:null});
+    const sock  = io();
+    const elMaxH = document.getElementById("maxH");
+    const elMaxV = document.getElementById("maxV");
+    const elMinW = document.getElementById("minW");
+    const elMaxW = document.getElementById("maxW");
+    const elSmooth = document.getElementById("smooth");
+    const btnClear = document.getElementById("clear");
 
-    const ds    = document.getElementById("disp-status"),
-          clist = document.getElementById("controls-list");
+    sock.emit("identify",{ role:"admin", deviceId:null });
 
-    socket.on("display-status", ({connected}) => {
-      ds.textContent = connected?"verbunden":"nicht verbunden";
-      ds.style.color = connected?"lightgreen":"crimson";
-    });
-
-    socket.on("controls-status", arr => {
-      clist.innerHTML="";
-      if(arr.length===0){
-        clist.innerHTML="<li>keine</li>";
-      } else {
-        arr.forEach(id=>{
-          const li=document.createElement("li");
-          li.textContent=id;
-          clist.appendChild(li);
-        });
-      }
-    });
-
-    function sendSettings(){
-      socket.emit("admin-settings",{
-        maxH:parseFloat(horiz.value),
-        maxV:parseFloat(vert.value),
-        smooth:parseFloat(smooth.value)/100,
-        minW:parseFloat(minW.value),
-        maxW:parseFloat(maxW.value)
-      });
+    function send() {
+      const cfg = {
+        maxH:   parseFloat(elMaxH.value),
+        maxV:   parseFloat(elMaxV.value),
+        minW:   parseFloat(elMinW.value),
+        maxW:   parseFloat(elMaxW.value),
+        smooth: parseFloat(elSmooth.value)
+      };
+      sock.emit("updateSettings", cfg);
     }
 
-    [horiz,vert,smooth,minW,maxW].forEach(el=>{
-      el.addEventListener(el.type==="range"?"input":"change",sendSettings);
-    });
+    [elMaxH, elMaxV, elMinW, elMaxW, elSmooth].forEach(el =>
+      el.addEventListener("change", send)
+    );
 
-    clear.addEventListener("click",()=>socket.emit("clear"));
-    sendSettings();
+    btnClear.addEventListener("click", () => sock.emit("clear"));
+
+    // initial
+    send();
   </script>
 </body>
 </html>
