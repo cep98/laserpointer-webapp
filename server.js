@@ -6,69 +6,33 @@ const io      = require("socket.io")(http);
 
 app.use(express.static("public"));
 
-// State-Tracking
-const roles          = new Map();   // socket.id → role
-const controls       = new Map();   // socket.id → deviceId
-let   displayOnline  = false;
-
 io.on("connection", socket => {
-  console.log("↗ Client verbunden:", socket.id);
+  console.log("🔌 Client verbunden:", socket.id);
 
-  // identify von Control / Display / Admin
   socket.on("identify", info => {
-    roles.set(socket.id, info.role);
-
-    if (info.role === "control") {
-      const devId = info.deviceId || socket.id;
-      controls.set(socket.id, devId);
-      io.emit("controls-status", Array.from(controls.values()));
-      console.log("✔ Control angemeldet:", devId);
-    }
-
-    if (info.role === "display") {
-      displayOnline = true;
-      io.emit("display-status", { connected: true });
-      console.log("✔ Display angemeldet");
-    }
-
-    if (info.role === "admin") {
-      // direkt Status an neuen Admin
-      socket.emit("display-status", { connected: displayOnline });
-      socket.emit("controls-status", Array.from(controls.values()));
-      console.log("✔ Admin angemeldet, Status gesendet");
-    }
+    socket.data.role = info.role;       // "control" | "display" | "admin"
+    socket.data.deviceId = info.deviceId || null;
+    // ggf. client-list aktualisieren …
+    io.emit("client-list", /* … Bau hier Eure Liste … */);
   });
 
-  // Bewegungsdaten weiterreichen
   socket.on("motion", data => {
+    // data: {alpha, beta, color, isDrawing, deviceId}
     socket.broadcast.emit("motion", data);
   });
 
-  // Canvas clear
   socket.on("clear", () => {
     io.emit("clear");
   });
 
-  // Admin-Einstellungen verteilen
-  socket.on("admin-settings", cfg => {
+  socket.on("updateSettings", cfg => {
+    // cfg enthält jetzt auch minW und maxW
     io.emit("updateSettings", cfg);
   });
 
   socket.on("disconnect", () => {
-    console.log("↘ Client getrennt:", socket.id);
-    const role = roles.get(socket.id);
-    roles.delete(socket.id);
-
-    if (role === "control") {
-      controls.delete(socket.id);
-      io.emit("controls-status", Array.from(controls.values()));
-      console.log("✖ Control getrennt");
-    }
-    if (role === "display") {
-      displayOnline = false;
-      io.emit("display-status", { connected: false });
-      console.log("✖ Display getrennt");
-    }
+    console.log("❌ Client getrennt:", socket.id);
+    io.emit("client-list", /* … aktualisierte Liste … */);
   });
 });
 
