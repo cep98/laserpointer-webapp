@@ -1,40 +1,80 @@
-// server.js
 const express = require("express");
 const app     = express();
 const http    = require("http").createServer(app);
 const io      = require("socket.io")(http);
 
+// Statische Dateien ausliefern
 app.use(express.static("public"));
 
+// Inaktivitäts-Timeout (5 Sekunden)
+const INACTIVITY_TIMEOUT = 5 * 1000;
+
+// clients: socketId → { ip, type, deviceId, lastMotion }
+const clients = {};
+
+// Funktion zum Senden der aktuellen Client-Liste an alle Admins
+function broadcastClients() {
+  const now = Date.now();
+  const list = Object.entries(clients).map(([socketId, info]) => ({
+    socketId,
+    ip:       info.ip,
+    deviceId: info.deviceId,
+    type:     info.type,
+    // active nur für Control-Clients, die innerhalb des Timeouts zuletzt motion gesendet haben
+    active:   info.type === "control" && (now - info.lastMotion) < INACTIVITY_TIMEOUT
+  }));
+  io.emit("client-list", list);
+}
+
 io.on("connection", socket => {
-  console.log("🔌 Client verbunden:", socket.id);
+  // Client initial registrieren
+  const ip = socket.handshake.address;
+  clients[socket.id] = {
+    ip,
+    type:       null,
+    deviceId:   null,
+    lastMotion: Date.now()
+  };
 
-  socket.on("identify", info => {
-    socket.data.role = info.role;       // "control" | "display" | "admin"
-    socket.data.deviceId = info.deviceId || null;
-    // ggf. client-list aktualisieren …
-    io.emit("client-list", /* … Bau hier Eure Liste … */);
+  // Rolle und Geräte-ID setzen
+  socket.on("identify", ({ role, deviceId }) => {
+    if (["control","display","admin"].includes(role)) {
+      clients[socket.id].type     = role;
+      clients[socket.id].deviceId = deviceId || null;
+      broadcastClients();
+    }
   });
 
+  // Motion-Event: Zeitstempel aktualisieren und mitsenden
   socket.on("motion", data => {
-    // data: {alpha, beta, color, isDrawing, deviceId}
-    socket.broadcast.emit("motion", data);
+    if (clients[socket.id]) {
+      clients[socket.id].lastMotion = Date.now();
+      const deviceId = clients[socket.id].deviceId;
+      io.emit("motion", { ...data, deviceId });
+    }
   });
 
+  // Admin-Einstellungen weiterleiten
+  socket.on("updateSettings", settings => {
+    io.emit("updateSettings", settings);
+  });
+
+  // Canvas löschen
   socket.on("clear", () => {
     io.emit("clear");
   });
 
-  socket.on("updateSettings", cfg => {
-    // cfg enthält jetzt auch minW und maxW
-    io.emit("updateSettings", cfg);
-  });
-
+  // Trennung: Client entfernen
   socket.on("disconnect", () => {
-    console.log("❌ Client getrennt:", socket.id);
-    io.emit("client-list", /* … aktualisierte Liste … */);
+    delete clients[socket.id];
+    broadcastClients();
   });
 });
 
-const PORT = process.env.PORT||3000;
-http.listen(PORT, () => console.log(`🚀 Server läuft auf Port ${PORT}`));
+// Periodisch jede Sekunde die Client-Liste senden
+setInterval(broadcastClients, 1000);
+
+const PORT = process.env.PORT || 3000;
+http.listen(PORT, () => {
+  console.log(`Server läuft auf Port ${PORT}`);
+});
