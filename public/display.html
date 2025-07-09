@@ -22,18 +22,19 @@
   <div id="version">v4.0 (Pixi v6 + MeshLine)</div>
   <div id="canvas-container"></div>
 
-  <!-- 1) Pixi v6 über CDNJS -->
+  <!-- PixiJS v6 -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/6.5.8/browser/pixi.min.js"></script>
-  <!-- 2) pixi-meshline (UMD v5) -->
+  <!-- pixi-meshline v5 -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi-meshline/5.4.0/pixi-meshline.umd.js"></script>
-  <!-- 3) Socket.IO Client -->
+  <!-- Socket.IO Client -->
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 
   <script>
   window.addEventListener("load", () => {
-    // ─ PIXI-Setup ─────────────────────────────────────────────
+    // ─ PIXI-Setup ──────────────────────────────────
     const app = new PIXI.Application({
-      width: 1024, height: 1024,
+      width: 1024,
+      height: 1024,
       backgroundColor: 0x000000,
       antialias: true,
       resolution: window.devicePixelRatio || 1
@@ -44,7 +45,7 @@
           pulseGraphics  = new PIXI.Graphics();
     app.stage.addChild(linesContainer, pulseGraphics);
 
-    // ─ Socket.IO & Debug ──────────────────────────────────────
+    // ─ Socket.IO & Debug ─────────────────────────────
     const socket = io();
     socket.on("connect", () => {
       console.log("✅ Socket.IO connected, id=", socket.id);
@@ -57,7 +58,7 @@
       console.warn("⚠️ Socket.IO disconnected");
     });
 
-    // ─ Admin-Settings ─────────────────────────────────────────
+    // ─ Admin-Settings ────────────────────────────────
     let MAX_H=20, MAX_V=20, SMOOTH=0.15, MIN_W=5, MAX_W=12;
     socket.on("updateSettings", cfg => {
       if (typeof cfg.maxH   === "number") MAX_H   = cfg.maxH;
@@ -68,14 +69,14 @@
       console.log("⚙️ Settings updated:", {MAX_H,MAX_V,SMOOTH,MIN_W,MAX_W});
     });
 
-    // ─ State per Device ───────────────────────────────────────
+    // ─ State per Device ──────────────────────────────
     const state = {};
     function parseLight(hsl){
       const m = hsl.match(/,\s*(\d+)%\)/);
-      return m?+m[1]:50;
+      return m ? +m[1] : 50;
     }
 
-    // ─ Clear-Handler ──────────────────────────────────────────
+    // ─ Clear-Handler ──────────────────────────────────
     socket.on("clear", () => {
       console.log("🧹 clear canvas");
       linesContainer.removeChildren();
@@ -83,14 +84,14 @@
       for (let id in state) delete state[id];
     });
 
-    // ─ Motion-Handler ─────────────────────────────────────────
+    // ─ Motion-Handler ─────────────────────────────────
     socket.on("motion", ({ alpha, beta, color, isDrawing, deviceId }) => {
       if (typeof alpha !== "number" || !deviceId) return;
       const now = performance.now(),
             CX  = app.renderer.width/2,
             CY  = app.renderer.height/2;
 
-      // initial state
+      // init state
       let s = state[deviceId];
       if (!s) {
         s = state[deviceId] = {
@@ -98,7 +99,7 @@
           beta0:  null,
           smooth:{ x:CX, y:CY, t:now },
           lastW:  (MIN_W+MAX_W)/2,
-          meshLine: new PIXI.mesh.MeshLine(),
+          meshLine: new PIXI.MeshLine(),
           material: null,
           mesh:     null,
           lastColor: color,
@@ -119,8 +120,8 @@
       }
       if (s.alpha0 === null) return;
 
-      // delta+wrap
-      let dA = alpha - s.alpha0;  
+      // delta + wrap
+      let dA = alpha - s.alpha0;
       if (dA > 180)  dA -= 360;
       if (dA < -180) dA += 360;
       let dB = beta - s.beta0;
@@ -136,7 +137,7 @@
       sp.x += (x-sp.x)*SMOOTH;
       sp.y += (y-sp.y)*SMOOTH;
 
-      // speed→width
+      // speed → width
       const dt    = (now-sp.t)/1000,
             dx    = sp.x - (s.prevX||sp.x),
             dy    = sp.y - (s.prevY||sp.y),
@@ -151,9 +152,8 @@
         s.lastW = w2;
 
         if (!s.material) {
-          // create MeshLine & Material once
           const colHex = PIXI.utils.string2hex(color);
-          s.material = new PIXI.mesh.MeshLineMaterial({
+          s.material = new PIXI.MeshLineMaterial({
             color: colHex,
             lineWidth: w2,
             resolution: { x:1024, y:1024 }
@@ -162,7 +162,6 @@
           linesContainer.addChild(s.mesh);
         }
 
-        // append point & width
         const pts    = s.meshLine.points.concat([sp.x, sp.y]);
         const widths = (s.meshLine.widths||[]).concat([w1, w2]);
         s.meshLine.setPoints(pts, false, widths);
@@ -170,7 +169,7 @@
       }
     });
 
-    // ─ Puls-Loop ─────────────────────────────────────────────
+    // ─ Puls-Loop ──────────────────────────────────────
     let pulse=0, grow=true;
     app.ticker.add(() => {
       pulse += grow?0.2:-0.2;
@@ -185,12 +184,10 @@
               light = s.lastLight||50,
               r    = s.lastW/2 + pulse;
 
-        // fill circle
         pulseGraphics.beginFill(col);
         pulseGraphics.drawCircle(sp.x, sp.y, r);
         pulseGraphics.endFill();
 
-        // ring on low-light
         if (light < 20) {
           pulseGraphics.lineStyle(3, 0xffffff);
           pulseGraphics.drawCircle(sp.x, sp.y, r+3);
