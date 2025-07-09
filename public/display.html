@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>Laserpointer Display v3.17 (Canvas2D dyn. Breite)</title>
+  <title>Laserpointer Display v3.13</title>
   <style>
     body { margin:0; background:#000; overflow:hidden }
     #version {
@@ -15,171 +15,161 @@
   </style>
 </head>
 <body>
-  <div id="version">v3.17 (Canvas2D dyn. Breite)</div>
+  <div id="version">v3.13 (dyn. Breite)</div>
   <canvas id="canvas" width="1024" height="1024"></canvas>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
-  (() => {
-    const socket = io();
-    const c      = document.getElementById("canvas");
-    const ctx    = c.getContext("2d");
-    const CX     = c.width/2, CY = c.height/2;
+  const socket = io();
+  socket.emit("identify",{ role:"display", deviceId:null });
 
-    // runde Kappen und Ecken
-    ctx.lineCap  = "round";
-    ctx.lineJoin = "round";
+  const c   = document.getElementById("canvas"),
+        ctx = c.getContext("2d"),
+        CX  = c.width/2,
+        CY  = c.height/2;
 
-    // Default-Einstellungen
-    let MAX_H = 20, MAX_V = 20, MIN_W = 5, MAX_W = 12, SMOOTH = 0.15;
+  // Standard-Settings
+  let MAX_H  = 20,
+      MAX_V  = 20,
+      MIN_W  = 2,
+      MAX_W  = 12,
+      SMOOTH = 0.15;
 
-    socket.on("updateSettings", cfg => {
-      if (typeof cfg.maxH   === "number") MAX_H   = cfg.maxH;
-      if (typeof cfg.maxV   === "number") MAX_V   = cfg.maxV;
-      if (typeof cfg.minW   === "number") MIN_W   = cfg.minW;
-      if (typeof cfg.maxW   === "number") MAX_W   = cfg.maxW;
-      if (typeof cfg.smooth === "number") SMOOTH  = cfg.smooth;
-      console.log("⚙ Settings:", {MAX_H,MAX_V,MIN_W,MAX_W,SMOOTH});
-    });
+  socket.on("updateSettings", cfg => {
+    if (typeof cfg.maxH   === "number") MAX_H  = cfg.maxH;
+    if (typeof cfg.maxV   === "number") MAX_V  = cfg.maxV;
+    if (typeof cfg.minW   === "number") MIN_W  = cfg.minW;
+    if (typeof cfg.maxW   === "number") MAX_W  = cfg.maxW;
+    if (typeof cfg.smooth === "number") SMOOTH = cfg.smooth;
+    console.log("Settings:",{MAX_H,MAX_V,MIN_W,MAX_W,SMOOTH});
+  });
 
-    // State pro Gerät
-    const state = {};
-    function parseLight(hsl){
-      const m = hsl.match(/,\s*(\d+)%\)/);
-      return m ? +m[1] : 50;
+  // Pro Device-State
+  const alpha0  = {},  // Kalibriernullpunkte
+        beta0   = {},
+        rawPos  = {},
+        lastT   = {},
+        segments = {},  // deviceId → [Segments]
+        lastC   = {},
+        lastL   = {};
+
+  function parseLight(hsl) {
+    const m = hsl.match(/,\s*(\d+)%\)/);
+    return m ? +m[1] : 50;
+  }
+
+  // löschen
+  socket.on("clear",() => {
+    ctx.clearRect(0,0,c.width,c.height);
+    for(let id in segments) segments[id]=[];
+  });
+
+  // incoming motion
+  socket.on("motion", ({alpha,beta,color,isDrawing,deviceId})=>{
+    if(typeof alpha!=="number"||!deviceId) return;
+    const now = performance.now(),
+          CX2 = CX, CY2 = CY;
+
+    lastC[deviceId] = color;
+    lastL[deviceId] = parseLight(color);
+
+    // init state-arrays
+    if(!(deviceId in rawPos)){
+      rawPos[deviceId] = {x:CX2,y:CY2};
+      lastT[deviceId]  = now;
+      segments[deviceId] = [];
+      alpha0[deviceId] = null;
+      beta0 [deviceId] = null;
     }
 
-    // Canvas löschen
-    socket.on("clear", () => {
-      ctx.clearRect(0,0,c.width,c.height);
-      for (let id in state) state[id].segments = [];
-    });
+    // kalibrieren
+    if(isDrawing && alpha0[deviceId]===null){
+      alpha0[deviceId] = alpha;
+      beta0 [deviceId] = beta;
+    }
+    if(alpha0[deviceId]===null) return;
 
-    // Bewegungsdaten
-    socket.on("motion", ({ alpha, beta, color, isDrawing, deviceId }) => {
-      if (typeof alpha!=="number" || !deviceId) return;
-      const now = performance.now();
+    // winkel-delta + wrap
+    let dA = alpha - alpha0[deviceId];
+    if(dA>180) dA-=360;
+    if(dA<-180)dA+=360;
+    let dB = beta - beta0[deviceId];
+    dA = Math.max(-MAX_H,Math.min(MAX_H,dA));
+    dB = Math.max(-MAX_V,Math.min(MAX_V,dB));
 
-      // init
-      if (!state[deviceId]) {
-        state[deviceId] = {
-          alpha0: null, beta0: null,
-          smooth:{ x:CX, y:CY, t:now },
-          lastW: (MIN_W+MAX_W)/2,
-          segments: [],
-          lastColor: color,
-          lastLight: parseLight(color)
-        };
-      }
-      const s = state[deviceId];
-      s.lastColor = color;
-      s.lastLight = parseLight(color);
+    // map to canvas
+    const x = CX2 - (dA/MAX_H)*CX2;
+    const y = CY2 - (dB/MAX_V)*CY2;
 
-      // kalibrieren
-      if (isDrawing && s.alpha0===null) {
-        s.alpha0 = alpha;
-        s.beta0  = beta;
-      }
-      if (s.alpha0===null) return;
+    // speed & width
+    const prev = rawPos[deviceId];
+    const dt   = (now - lastT[deviceId])/1000;
+    const dist = Math.hypot(x-prev.x, y-prev.y);
+    const speed= dt>0 ? dist/dt : 0;
+    lastT[deviceId] = now;
 
-      // delta + wrap
-      let dA = alpha - s.alpha0;  
-      if (dA>180)  dA-=360;
-      if (dA<-180) dA+=360;
-      let dB = beta - s.beta0;
-      dA = Math.max(-MAX_H, Math.min(MAX_H, dA));
-      dB = Math.max(-MAX_V, Math.min(MAX_V, dB));
+    const norm = Math.min(1, speed/2000),
+          w2   = MAX_W - (MAX_W-MIN_W)*norm,
+          w1   = segments[deviceId].length
+                 ? segments[deviceId].slice(-1)[0].w2
+                 : (MIN_W+MAX_W)/2;
 
-      // map to canvas
-      const x = CX - (dA/MAX_H)*CX,
-            y = CY - (dB/MAX_V)*CY;
+    if(isDrawing){
+      segments[deviceId].push({ x1:prev.x, y1:prev.y, x2:x, y2:y, w1,w2 });
+    }
+    rawPos[deviceId] = {x,y};
+  });
 
-      // glätten (für Puls)
-      const sp = s.smooth;
-      sp.x += (x-sp.x)*SMOOTH;
-      sp.y += (y-sp.y)*SMOOTH;
+  // render-loop
+  let pulse=0, grow=true;
+  (function R(){
+    ctx.clearRect(0,0,c.width,c.height);
 
-      // Geschwindigkeit für Breite
-      const dt    = (now-sp.t)/1000,
-            dx    = x - (s.prevX||x),
-            dy    = y - (s.prevY||y),
-            speed = dt>0 ? Math.hypot(dx,dy)/dt : 0;
-      sp.t     = now;
-      s.prevX  = x;
-      s.prevY  = y;
+    // zeichne alle devices
+    for(let id in segments){
+      const segs = segments[id];
+      const col  = lastC[id] || "#f00";
+      ctx.strokeStyle = col;
 
-      // zeichnen?
-      if (isDrawing) {
-        const norm = Math.min(1, speed/2000);
-        const w2   = MAX_W - (MAX_W - MIN_W)*norm;
-        const w1   = s.lastW;
-        s.lastW    = w2;
-        s.segments.push({
-          x1: sp.x - dx,  y1: sp.y - dy,
-          x2: sp.x,       y2: sp.y,
-          w1, w2, color
-        });
-      }
-    });
-
-    // Render-Loop
-    let pulse = 0, grow = true;
-    (function draw(){
-      ctx.clearRect(0,0,c.width,c.height);
-
-      // ============
-      // 1) Linien
-      // ============
-      for (let id in state) {
-        const s = state[id];
-        ctx.strokeStyle = s.lastColor;
-
-        for (let seg of s.segments) {
-          const steps = 30;  // statt 10 jetzt 30 Unterteilungen
-          for (let i=0; i<steps; i++) {
-            const t0 = i/steps, t1=(i+1)/steps;
-            const x0 = seg.x1 + (seg.x2-seg.x1)*t0;
-            const y0 = seg.y1 + (seg.y2-seg.y1)*t0;
-            const x1 = seg.x1 + (seg.x2-seg.x1)*t1;
-            const y1 = seg.y1 + (seg.y2-seg.y1)*t1;
-            const w  = seg.w1 + (seg.w2-seg.w1)*t0;
-            ctx.lineWidth = w;
-            ctx.beginPath();
-            ctx.moveTo(x0,y0);
-            ctx.lineTo(x1,y1);
-            ctx.stroke();
-          }
-        }
-      }
-
-      // ============
-      // 2) Pulsierender Punkt
-      // ============
-      pulse += grow?0.2:-0.2;
-      if (pulse>2) grow=false;
-      if (pulse<0) grow=true;
-
-      for (let id in state) {
-        const sp = state[id].smooth,
-              r  = state[id].lastW/2 + pulse;
-        // Füllung
-        ctx.beginPath();
-        ctx.fillStyle = state[id].lastColor;
-        ctx.arc(sp.x, sp.y, r, 0, Math.PI*2);
-        ctx.fill();
-        // weißer Ring bei dunkler Helligkeit
-        if (state[id].lastLight < 20) {
-          ctx.lineWidth   = 3;
-          ctx.strokeStyle = "#fff";
+      for(let s of segs){
+        const steps = 20;
+        for(let i=0;i<steps;i++){
+          const t0 = i/steps, t1=(i+1)/steps;
+          const X0 = s.x1 + (s.x2-s.x1)*t0;
+          const Y0 = s.y1 + (s.y2-s.y1)*t0;
+          const X1 = s.x1 + (s.x2-s.x1)*t1;
+          const Y1 = s.y1 + (s.y2-s.y1)*t1;
+          const W  = s.w1 + (s.w2-s.w1)*t0;
+          ctx.lineWidth = W;
           ctx.beginPath();
-          ctx.arc(sp.x, sp.y, r+3, 0, Math.PI*2);
+          ctx.moveTo(X0,Y0);
+          ctx.lineTo(X1,Y1);
           ctx.stroke();
         }
       }
+    }
 
-      requestAnimationFrame(draw);
-    })();
+    // pulsierender punkt
+    pulse += grow?0.2:-0.2;
+    if(pulse>2) grow=false;
+    if(pulse<0) grow=true;
 
+    for(let id in rawPos){
+      const {x,y}= rawPos[id];
+      const R  = ((segments[id]?.slice(-1)[0]?.w2)||MIN_W)/2 + pulse;
+      ctx.fillStyle   = lastC[id]||"#f00";
+      ctx.beginPath();
+      ctx.arc(x,y,R,0,2*Math.PI);
+      ctx.fill();
+      if(lastL[id]<20){
+        ctx.strokeStyle="#fff"; ctx.lineWidth=3;
+        ctx.beginPath();
+        ctx.arc(x,y,R+3,0,2*Math.PI);
+        ctx.stroke();
+      }
+    }
+
+    requestAnimationFrame(R);
   })();
   </script>
 </body>
