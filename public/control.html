@@ -5,11 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Laserpointer Control v3.11</title>
   <style>
-    /* keine Text-Auswahl/Touch-Callouts bei Buttons */
+    /* Keine Touch-Selection oder Callouts */
     *, button {
       -webkit-touch-callout: none;
-      -webkit-user-select: none;
-      user-select: none;
+      -webkit-user-select:   none;
+      -moz-user-select:      none;
+      -ms-user-select:       none;
+      user-select:           none;
     }
     body {
       margin: 0;
@@ -85,6 +87,7 @@
       border: none;
       touch-action: none;
     }
+    /* Button zum Anfordern der Permission */
     #permBtn {
       position: absolute;
       top: 50%;
@@ -97,31 +100,28 @@
   </style>
 </head>
 <body>
-  <!-- 1) Gyro-Permission-Button -->
+  <!-- Gyro-Permission -->
   <button id="permBtn">Gyro freigeben</button>
 
   <div class="version">v3.11</div>
 
-  <!-- 2) Farbton-Regler -->
   <div class="setting">
     <input id="hue" type="range" min="0" max="360" value="0"/>
     <span id="hueVal" class="value">0°</span>
   </div>
 
-  <!-- 3) Intensität-Regler -->
   <div class="setting">
     <input id="intensity" type="range" min="0" max="100" value="50"/>
     <span id="intVal" class="value">50 %</span>
     <div id="preview"></div>
   </div>
 
-  <!-- 4) Laser-Button -->
   <button id="laserBtn"></button>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
-    // sofort als Control registrieren
+    // Persistente Geräte-ID
     let deviceId = localStorage.getItem("deviceId");
     if (!deviceId) {
       deviceId = crypto.randomUUID();
@@ -129,50 +129,62 @@
     }
     socket.emit("identify", { role: "control", deviceId });
 
-    const permBtn   = document.getElementById("permBtn"),
-          hueSlider = document.getElementById("hue"),
-          hueVal    = document.getElementById("hueVal"),
-          intSlider = document.getElementById("intensity"),
-          intVal    = document.getElementById("intVal"),
-          preview   = document.getElementById("preview"),
-          laserBtn  = document.getElementById("laserBtn");
+    const permBtn   = document.getElementById("permBtn");
+    const hueSlider = document.getElementById("hue");
+    const hueVal    = document.getElementById("hueVal");
+    const intSlider = document.getElementById("intensity");
+    const intVal    = document.getElementById("intVal");
+    const preview   = document.getElementById("preview");
+    const laserBtn  = document.getElementById("laserBtn");
 
-    let isDrawing = false,
-        hue       = 0,
-        intensity = 50,
-        colorHSL  = `hsl(0,100%,50%)`;
+    let isDrawing = false;
+    let hue       = 0;
+    let intensity = 50;
+    let colorHSL  = `hsl(0,100%,50%)`;
 
-    // Gyro-Permission einholen
+    // Erst wenn Nutzer explizit erlaubt
     permBtn.addEventListener("click", async () => {
       if (typeof DeviceOrientationEvent.requestPermission === "function") {
-        const res = await DeviceOrientationEvent.requestPermission();
-        if (res !== "granted") return alert("Gyro verweigert");
+        try {
+          const res = await DeviceOrientationEvent.requestPermission();
+          if (res === "granted") {
+            initGyro();
+            permBtn.style.display = "none";
+          } else {
+            alert("Gyro-Zugriff verweigert");
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      } else {
+        initGyro();
+        permBtn.style.display = "none";
       }
-      initGyro();
-      permBtn.style.display = "none";
     });
 
     function initGyro() {
-      window.addEventListener("deviceorientation", e => {
-        if (!isDrawing || e.alpha==null||e.beta==null) return;
-        socket.emit("motion", {
-          alpha: e.alpha, beta: e.beta,
-          color: colorHSL,
-          isDrawing,
-          deviceId
-        });
+      window.addEventListener("deviceorientation", sendOri);
+    }
+
+    function sendOri(e) {
+      if (e.alpha == null || e.beta == null) return;
+      socket.emit("motion", {
+        alpha:      e.alpha,
+        beta:       e.beta,
+        color:      colorHSL,
+        isDrawing
       });
     }
 
-    // Slider-Backgrounds
-    function setHueBg() {
+    // Slider-Hintergründe
+    function setHueBackground() {
       hueSlider.style.background =
-        "linear-gradient(to right,"+
-        "hsl(0,100%,50%), hsl(60,100%,50%), hsl(120,100%,50%), "+
-        "hsl(180,100%,50%), hsl(240,100%,50%), hsl(300,100%,50%), hsl(360,100%,50%)"
-        +")";
+        "linear-gradient(to right, " +
+        "hsl(0,100%,50%), hsl(60,100%,50%), hsl(120,100%,50%), " +
+        "hsl(180,100%,50%), hsl(240,100%,50%), hsl(300,100%,50%), hsl(360,100%,50%)" +
+        ")";
     }
-    function setIntBg() {
+    function setIntensityBackground() {
       const mid = `hsl(${hue},100%,50%)`;
       intSlider.style.background =
         `linear-gradient(to right, black, ${mid}, white)`;
@@ -185,16 +197,16 @@
       intVal.textContent = intensity + " %";
       colorHSL = `hsl(${hue},100%,${intensity}%)`;
       preview.style.background = colorHSL;
-      setIntBg();
+      setIntensityBackground();
     }
 
-    setHueBg();
-    setIntBg();
+    setHueBackground();
+    setIntensityBackground();
     updateColor();
+
     hueSlider.addEventListener("input", updateColor);
     intSlider.addEventListener("input", updateColor);
 
-    // Laser-Button: Touch → Zeichnen start/stop
     laserBtn.addEventListener("touchstart", e => {
       e.preventDefault();
       isDrawing = true;
@@ -204,7 +216,7 @@
       isDrawing = false;
     });
 
-    // Kontextmenü ausschalten
+    // Kontextmenü unterdrücken
     document.addEventListener("contextmenu", e => e.preventDefault());
   </script>
 </body>
