@@ -3,199 +3,174 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>Laserpointer Display v4.0 (Pixi v6 + MeshLine)</title>
+  <title>Laserpointer Display v3.16 (Canvas2D)</title>
   <style>
-    body { margin:0; background:#000; }
+    body { margin:0; background:#000; overflow:hidden }
     #version {
       position:absolute; top:10px; left:10px;
       color:#fff; font-family:sans-serif;
-      font-size:14px; opacity:0.6; z-index:10;
+      font-size:14px; opacity:0.6;
+      z-index:10;
     }
-    #canvas-container {
-      width:1024px; height:1024px;
-      margin:auto; position:relative;
-      top:50%; transform:translateY(-50%);
-    }
+    canvas { display:block; margin:auto; background:#000 }
   </style>
 </head>
 <body>
-  <div id="version">v4.0 (Pixi v6 + MeshLine)</div>
-  <div id="canvas-container"></div>
+  <div id="version">v3.16 (Canvas2D dyn. Breite)</div>
+  <canvas id="canvas" width="1024" height="1024"></canvas>
 
-  <!-- PixiJS v6 -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/6.5.8/browser/pixi.min.js"></script>
-  <!-- pixi-meshline v5 -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi-meshline/5.4.0/pixi-meshline.umd.js"></script>
   <!-- Socket.IO Client -->
-  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-
+  <script src="/socket.io/socket.io.js"></script>
   <script>
-  window.addEventListener("load", () => {
-    // ─ PIXI-Setup ──────────────────────────────────
-    const app = new PIXI.Application({
-      width: 1024,
-      height: 1024,
-      backgroundColor: 0x000000,
-      antialias: true,
-      resolution: window.devicePixelRatio || 1
-    });
-    document.getElementById("canvas-container").appendChild(app.view);
-
-    const linesContainer = new PIXI.Container(),
-          pulseGraphics  = new PIXI.Graphics();
-    app.stage.addChild(linesContainer, pulseGraphics);
-
-    // ─ Socket.IO & Debug ─────────────────────────────
+  (() => {
     const socket = io();
-    socket.on("connect", () => {
-      console.log("✅ Socket.IO connected, id=", socket.id);
-      socket.emit("identify", { role:"display", deviceId:null });
-    });
-    socket.on("connect_error", err => {
-      console.error("❌ Socket.IO connect_error:", err);
-    });
-    socket.on("disconnect", () => {
-      console.warn("⚠️ Socket.IO disconnected");
-    });
+    const c      = document.getElementById("canvas");
+    const ctx    = c.getContext("2d");
+    const CX     = c.width/2, CY = c.height/2;
 
-    // ─ Admin-Settings ────────────────────────────────
-    let MAX_H=20, MAX_V=20, SMOOTH=0.15, MIN_W=5, MAX_W=12;
+    // Default-Einstellungen
+    let MAX_H = 20, MAX_V = 20, MIN_W = 5, MAX_W = 12, SMOOTH = 0.15;
+
     socket.on("updateSettings", cfg => {
       if (typeof cfg.maxH   === "number") MAX_H   = cfg.maxH;
       if (typeof cfg.maxV   === "number") MAX_V   = cfg.maxV;
-      if (typeof cfg.smooth === "number") SMOOTH  = cfg.smooth;
       if (typeof cfg.minW   === "number") MIN_W   = cfg.minW;
       if (typeof cfg.maxW   === "number") MAX_W   = cfg.maxW;
-      console.log("⚙️ Settings updated:", {MAX_H,MAX_V,SMOOTH,MIN_W,MAX_W});
+      if (typeof cfg.smooth === "number") SMOOTH  = cfg.smooth;
+      console.log("⚙ Settings:", {MAX_H,MAX_V,MIN_W,MAX_W,SMOOTH});
     });
 
-    // ─ State per Device ──────────────────────────────
+    // State pro Gerät
     const state = {};
     function parseLight(hsl){
       const m = hsl.match(/,\s*(\d+)%\)/);
       return m ? +m[1] : 50;
     }
 
-    // ─ Clear-Handler ──────────────────────────────────
+    // Canvas löschen
     socket.on("clear", () => {
-      console.log("🧹 clear canvas");
-      linesContainer.removeChildren();
-      pulseGraphics.clear();
-      for (let id in state) delete state[id];
+      ctx.clearRect(0,0,c.width,c.height);
+      for (let id in state) state[id].segments = [];
     });
 
-    // ─ Motion-Handler ─────────────────────────────────
+    // Neue Daten
     socket.on("motion", ({ alpha, beta, color, isDrawing, deviceId }) => {
-      if (typeof alpha !== "number" || !deviceId) return;
-      const now = performance.now(),
-            CX  = app.renderer.width/2,
-            CY  = app.renderer.height/2;
+      if (typeof alpha!=="number" || !deviceId) return;
+      const now = performance.now();
 
-      // init state
-      let s = state[deviceId];
-      if (!s) {
-        s = state[deviceId] = {
-          alpha0: null,
-          beta0:  null,
+      // initialisieren
+      if (!state[deviceId]) {
+        state[deviceId] = {
+          alpha0: null, beta0: null,
           smooth:{ x:CX, y:CY, t:now },
-          lastW:  (MIN_W+MAX_W)/2,
-          meshLine: new PIXI.MeshLine(),
-          material: null,
-          mesh:     null,
+          lastW: (MIN_W+MAX_W)/2,
+          segments: [],
           lastColor: color,
           lastLight: parseLight(color)
         };
-        console.log("✨ new device:", deviceId);
       }
-
-      // update color/light
+      const s = state[deviceId];
       s.lastColor = color;
       s.lastLight = parseLight(color);
 
-      // calibrate on first draw
+      // bei erstem Zeichnen kalibrieren
       if (isDrawing && s.alpha0 === null) {
         s.alpha0 = alpha;
         s.beta0  = beta;
-        console.log(`🎯 calibrated ${deviceId} α=${alpha.toFixed(1)},β=${beta.toFixed(1)}`);
       }
       if (s.alpha0 === null) return;
 
-      // delta + wrap
+      // Winkel-Delta + Wrap-Around
       let dA = alpha - s.alpha0;
-      if (dA > 180)  dA -= 360;
-      if (dA < -180) dA += 360;
+      if (dA>180)  dA-=360;
+      if (dA<-180) dA+=360;
       let dB = beta - s.beta0;
       dA = Math.max(-MAX_H, Math.min(MAX_H, dA));
       dB = Math.max(-MAX_V, Math.min(MAX_V, dB));
 
-      // map to canvas
-      const x = CX - (dA/MAX_H)*CX,
-            y = CY - (dB/MAX_V)*CY;
+      // auf Canvas-Koordinaten mappen
+      const x = CX - (dA/MAX_H)*CX;
+      const y = CY - (dB/MAX_V)*CY;
 
-      // smoothing
+      // Glätten (für den Puls-Cursor)
       const sp = s.smooth;
-      sp.x += (x-sp.x)*SMOOTH;
-      sp.y += (y-sp.y)*SMOOTH;
+      sp.x += (x - sp.x)*SMOOTH;
+      sp.y += (y - sp.y)*SMOOTH;
 
-      // speed → width
-      const dt    = (now-sp.t)/1000,
-            dx    = sp.x - (s.prevX||sp.x),
-            dy    = sp.y - (s.prevY||sp.y),
-            speed = dt>0?Math.hypot(dx,dy)/dt:0;
-      sp.t = now; s.prevX = sp.x; s.prevY = sp.y;
+      // Geschwindigkeit berechnen (px/s)
+      const dt    = (now - sp.t)/1000;
+      const dx    = x - (s.prevX||x);
+      const dy    = y - (s.prevY||y);
+      const speed = dt>0 ? Math.hypot(dx,dy)/dt : 0;
+      sp.t = now; s.prevX = x; s.prevY = y;
 
-      // draw dynamic-width segment
+      // wenn gezeichnet wird, Segment speichern
       if (isDrawing) {
-        const norm = Math.min(1, speed/2000),
-              w2   = MAX_W - (MAX_W - MIN_W)*norm,
-              w1   = s.lastW;
-        s.lastW = w2;
-
-        if (!s.material) {
-          const colHex = PIXI.utils.string2hex(color);
-          s.material = new PIXI.MeshLineMaterial({
-            color: colHex,
-            lineWidth: w2,
-            resolution: { x:1024, y:1024 }
-          });
-          s.mesh = new PIXI.Mesh(s.meshLine, s.material);
-          linesContainer.addChild(s.mesh);
-        }
-
-        const pts    = s.meshLine.points.concat([sp.x, sp.y]);
-        const widths = (s.meshLine.widths||[]).concat([w1, w2]);
-        s.meshLine.setPoints(pts, false, widths);
-        s.material.uniforms.lineWidth = w2;
+        const norm = Math.min(1, speed/2000);
+        const w2   = MAX_W - (MAX_W - MIN_W)*norm;
+        const w1   = s.lastW;
+        s.lastW    = w2;
+        s.segments.push({
+          x1: sp.x - dx, y1: sp.y - dy,
+          x2: sp.x,      y2: sp.y,
+          w1, w2, color
+        });
       }
     });
 
-    // ─ Puls-Loop ──────────────────────────────────────
-    let pulse=0, grow=true;
-    app.ticker.add(() => {
-      pulse += grow?0.2:-0.2;
-      if (pulse>2) grow=false;
-      if (pulse<0) grow=true;
+    // Render-Loop
+    let pulse = 0, grow = true;
+    (function draw(){
+      ctx.clearRect(0,0,c.width,c.height);
 
-      pulseGraphics.clear();
+      // 1) alle Segmente zeichnen (Unterteilungen für smooth width)
       for (let id in state) {
-        const s   = state[id],
-              sp  = s.smooth,
-              col = PIXI.utils.string2hex(s.lastColor||"#fff"),
-              light = s.lastLight||50,
-              r    = s.lastW/2 + pulse;
-
-        pulseGraphics.beginFill(col);
-        pulseGraphics.drawCircle(sp.x, sp.y, r);
-        pulseGraphics.endFill();
-
-        if (light < 20) {
-          pulseGraphics.lineStyle(3, 0xffffff);
-          pulseGraphics.drawCircle(sp.x, sp.y, r+3);
+        const s = state[id];
+        ctx.strokeStyle = s.lastColor;
+        for (let seg of s.segments) {
+          const steps = 10;
+          for (let i=0; i<steps; i++) {
+            const t0 = i/steps, t1=(i+1)/steps;
+            const x0 = seg.x1 + (seg.x2-seg.x1)*t0;
+            const y0 = seg.y1 + (seg.y2-seg.y1)*t0;
+            const x1 = seg.x1 + (seg.x2-seg.x1)*t1;
+            const y1 = seg.y1 + (seg.y2-seg.y1)*t1;
+            const w  = seg.w1 + (seg.w2-seg.w1)*t0;
+            ctx.lineWidth = w;
+            ctx.beginPath();
+            ctx.moveTo(x0,y0);
+            ctx.lineTo(x1,y1);
+            ctx.stroke();
+          }
         }
       }
-    });
 
-  }); // window.load
+      // 2) pulsierender Punkt
+      pulse += grow?0.2:-0.2;
+      if (pulse>2) grow = false;
+      if (pulse<0) grow = true;
+
+      for (let id in state) {
+        const sp    = state[id].smooth,
+              r     = state[id].lastW/2 + pulse;
+        // Füllung
+        ctx.beginPath();
+        ctx.fillStyle = state[id].lastColor;
+        ctx.arc(sp.x, sp.y, r, 0, Math.PI*2);
+        ctx.fill();
+        // weißer Ring bei dunkler Farbe
+        if (state[id].lastLight < 20) {
+          ctx.lineWidth   = 3;
+          ctx.strokeStyle = "#fff";
+          ctx.beginPath();
+          ctx.arc(sp.x, sp.y, r+3, 0, Math.PI*2);
+          ctx.stroke();
+        }
+      }
+
+      requestAnimationFrame(draw);
+    })();
+  })();
   </script>
 </body>
 </html>
