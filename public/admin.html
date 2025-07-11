@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Admin Panel v3.8</title>
+  <title>Admin Panel v3.8+</title>
   <style>
     body { margin:0; padding:20px; background:#111; color:#fff; font-family:sans-serif; }
     h1 { margin-top:0; }
@@ -32,6 +32,16 @@
     <label for="maxV">Max. Winkel vertikal (°):</label>
     <input id="maxV" type="number" value="20" min="0" max="180"/>
   </div>
+  <!-- neu: Min. Strichstärke -->
+  <div class="setting">
+    <label for="minW">Min. Strichstärke (px):</label>
+    <input id="minW" type="number" value="5" min="1" max="100"/>
+  </div>
+  <!-- neu: Max. Strichstärke -->
+  <div class="setting">
+    <label for="maxW">Max. Strichstärke (px):</label>
+    <input id="maxW" type="number" value="12" min="1" max="200"/>
+  </div>
   <div class="setting">
     <label for="smooth">Glättung (% – 0 = volle Glättung):</label>
     <input id="smooth" type="range" min="0" max="100" value="20"/>
@@ -53,6 +63,8 @@
 
     const elMaxH     = document.getElementById("maxH");
     const elMaxV     = document.getElementById("maxV");
+    const elMinW     = document.getElementById("minW");
+    const elMaxW     = document.getElementById("maxW");
     const elSmooth   = document.getElementById("smooth");
     const elSmoothVal= document.getElementById("smoothVal");
     const btnClear   = document.getElementById("clear");
@@ -60,34 +72,35 @@
     const dispState  = document.getElementById("dispState");
 
     function sendSettings() {
-      const maxH   = parseFloat(elMaxH.value) || 20;
-      const maxV   = parseFloat(elMaxV.value) || 20;
-      // invertierter Slider: 20 % → smooth = 0.80
+      const maxH   = parseFloat(elMaxH.value)   || 20;
+      const maxV   = parseFloat(elMaxV.value)   || 20;
+      const minW   = parseFloat(elMinW.value)   || 5;
+      const maxW   = parseFloat(elMaxW.value)   || 12;
       const smooth = 1 - (parseFloat(elSmooth.value) / 100);
-      socket.emit("updateSettings", { maxH, maxV, smooth });
+      socket.emit("updateSettings", { maxH, maxV, minW, maxW, smooth });
     }
 
-    elMaxH.addEventListener("change", sendSettings);
-    elMaxV.addEventListener("change", sendSettings);
+    elMaxH .addEventListener("change", sendSettings);
+    elMaxV .addEventListener("change", sendSettings);
+    elMinW .addEventListener("change", sendSettings);
+    elMaxW .addEventListener("change", sendSettings);
     elSmooth.addEventListener("input", () => {
       elSmoothVal.textContent = elSmooth.value + " %";
       sendSettings();
     });
 
-    btnClear.addEventListener("click", () => {
-      socket.emit("clear");
-    });
+    btnClear.addEventListener("click", () => socket.emit("clear"));
 
-    // Initial die Settings senden
+    // initial senden
     sendSettings();
 
     socket.on("client-list", list => {
       const hasDisp = list.some(c => c.type === "display");
       dispState.textContent = hasDisp ? "verbunden ✅" : "nicht verbunden ❌";
 
-      const ctrls = list.filter(c => c.type === "control" && c.active);
       tblBody.innerHTML = "";
-      ctrls.forEach(({ deviceId, ip }) => {
+      list.filter(c => c.type === "control" && c.active)
+          .forEach(({ deviceId, ip }) => {
         const tr = document.createElement("tr");
         tr.innerHTML = `<td>${deviceId || "–"}</td><td>${ip}</td>`;
         tblBody.appendChild(tr);
