@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>Laserpointer Display v3.13.3</title>
+  <title>Laserpointer Display v3.13.4</title>
   <style>
     body { margin:0; background:black; }
-    canvas { display:block; margin:auto; background:black }
+    canvas { display:block; margin:auto; background:black; }
     #version {
       position:absolute; top:10px; left:10px;
       color:white; font-family:sans-serif;
@@ -15,24 +15,24 @@
   </style>
 </head>
 <body>
-  <div id="version">v3.13.3</div>
+  <div id="version">v3.13.4 (smoothing re-enabled)</div>
   <canvas id="canvas" width="1024" height="1024"></canvas>
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
     socket.emit("identify", { role:"display", deviceId:null });
 
-    const c     = document.getElementById("canvas"),
-          ctx   = c.getContext("2d"),
-          CX    = c.width/2,
-          CY    = c.height/2;
+    const c    = document.getElementById("canvas"),
+          ctx  = c.getContext("2d"),
+          CX   = c.width/2,
+          CY   = c.height/2;
 
     // Admin‐Settings
-    let MAX_H   = 20,
-        MAX_V   = 20,
-        MIN_W   = 5,
-        MAX_W   = 12,
-        SMOOTH  = 0.15;
+    let MAX_H  = 20,
+        MAX_V  = 20,
+        MIN_W  = 5,
+        MAX_W  = 12,
+        SMOOTH = 0.15;
 
     socket.on("updateSettings", cfg => {
       if (typeof cfg.maxAlpha === "number") MAX_H  = cfg.maxAlpha;
@@ -40,19 +40,21 @@
       if (typeof cfg.minW     === "number") MIN_W  = cfg.minW;
       if (typeof cfg.maxW     === "number") MAX_W  = cfg.maxW;
       if (typeof cfg.smooth   === "number") SMOOTH = cfg.smooth;
+      console.log("Settings:", { MAX_H, MAX_V, MIN_W, MAX_W, SMOOTH });
     });
 
     const SPEED_THRESHOLD = 2000;
 
     // State pro Gerät
-    const alpha0    = {},
+    const alpha0    = {},     // Kalibrier‐Nullpunkt
           beta0     = {},
-          rawPos    = {},
+          rawPos    = {},     // aktuelle Roh‐Position (px)
+          smoothPos = {},     // geglättete Position
           lastTime  = {},
           lastWidth = {},
           lastLight = {},
           lastColor = {},
-          segments  = {};
+          segments  = {};     // id → Array von Segmenten
 
     ctx.lineCap  = "round";
     ctx.lineJoin = "round";
@@ -62,100 +64,120 @@
       return m ? +m[1] : 50;
     }
 
-    // Farbwechsel direkt übernehmen
-    socket.on("color-change", ({ deviceId, color }) => {
-      if (deviceId in lastColor) {
-        lastColor[deviceId]   = color;
-        lastLight[deviceId]   = parseLight(color);
-      }
-    });
-
     socket.on("clear", () => {
       ctx.clearRect(0,0,c.width,c.height);
       for (let id in segments) segments[id] = [];
     });
 
     socket.on("motion", ({ alpha, beta, color, isDrawing, deviceId }) => {
-      if (!deviceId || typeof alpha!=="number" || typeof beta!=="number") return;
+      if (!deviceId || typeof alpha !== "number" || typeof beta !== "number") return;
       const now = performance.now();
 
+      // Erster Kontakt anlegen
       if (!(deviceId in rawPos)) {
-        rawPos[deviceId]   = { x:CX, y:CY };
-        lastTime[deviceId] = now;
-        lastWidth[deviceId]= (MIN_W+MAX_W)/2;
-        segments[deviceId] = [];
-        alpha0[deviceId]   = null;
-        beta0 [deviceId]   = null;
-        lastColor[deviceId]= color;
-        lastLight[deviceId]= parseLight(color);
+        rawPos[deviceId]    = { x:CX, y:CY };
+        smoothPos[deviceId] = { x:CX, y:CY };
+        lastTime[deviceId]  = now;
+        lastWidth[deviceId] = (MIN_W + MAX_W)/2;
+        segments[deviceId]  = [];
+        alpha0[deviceId]    = null;
+        beta0 [deviceId]    = null;
+        lastLight[deviceId] = parseLight(color);
+        lastColor[deviceId] = color;
       }
 
-      // immer updaten
+      // Farbe und Helligkeit immer updaten
       lastColor[deviceId] = color;
       lastLight[deviceId] = parseLight(color);
 
-      if (isDrawing && alpha0[deviceId]===null) {
+      // Kalibrierung bei erstem Zeichnen
+      if (isDrawing && alpha0[deviceId] === null) {
         alpha0[deviceId] = alpha;
         beta0 [deviceId] = beta;
       }
-      if (alpha0[deviceId]===null) return;
+      if (alpha0[deviceId] === null) return;  // bis hier kalibrieren
 
+      // Winkel‐Delta + Wrap
       let dA = alpha - alpha0[deviceId];
       if (dA > 180)  dA -= 360;
       if (dA < -180) dA += 360;
       let dB = beta - beta0[deviceId];
+
+      // clamp
       dA = Math.max(-MAX_H, Math.min(MAX_H, dA));
       dB = Math.max(-MAX_V, Math.min(MAX_V, dB));
 
-      const x = CX - (dA/MAX_H)*CX;
-      const y = CY - (dB/MAX_V)*CY;
+      // Map auf Canvas‐Koordinaten
+      const rawX = CX - (dA/MAX_H)*CX,
+            rawY = CY - (dB/MAX_V)*CY;
 
-      const prev = rawPos[deviceId];
-      const dt   = (now - lastTime[deviceId]) / 1000;
-      const dist = Math.hypot(x-prev.x, y-prev.y);
-      const speed= dt>0 ? dist/dt : 0;
+      // Glätten: exponential smoothing
+      const s = smoothPos[deviceId];
+      s.x += (rawX - s.x) * SMOOTH;
+      s.y += (rawY - s.y) * SMOOTH;
+
+      // Geschwindigkeit für Breiten‐Berechnung
+      const prevRaw = rawPos[deviceId],
+            dt      = (now - lastTime[deviceId])/1000,
+            dist    = Math.hypot(rawX - prevRaw.x, rawY - prevRaw.y),
+            speed   = dt>0 ? dist/dt : 0;
       lastTime[deviceId] = now;
+      rawPos[deviceId]   = { x: rawX, y: rawY };
 
       if (isDrawing) {
-        const norm = Math.min(1, speed/SPEED_THRESHOLD);
+        // normierte Geschwindigkeit [0..1]
+        const norm = Math.min(1, speed / SPEED_THRESHOLD);
         const rawW = MAX_W - (MAX_W - MIN_W)*norm;
-        const wPrev= lastWidth[deviceId];
-        const w    = wPrev + (rawW - wPrev)*0.3;
-        lastWidth[deviceId]= w;
+
+        // glatte Breite
+        const wPrev = lastWidth[deviceId];
+        const w     = wPrev + (rawW - wPrev)*0.3;
+        lastWidth[deviceId] = w;
+
+        // Segment vom letzten smoothed‐Punkt zum neuen
+        const lastS = segments[deviceId].length
+          ? segments[deviceId][segments[deviceId].length-1]
+          : null;
+        const fromX = lastS ? lastS.x2 : s.x,
+              fromY = lastS ? lastS.y2 : s.y;
 
         segments[deviceId].push({
-          x1: prev.x, y1: prev.y,
-          x2: x,      y2: y,
+          x1: fromX,
+          y1: fromY,
+          x2: s.x,
+          y2: s.y,
           w, color
         });
       }
-
-      rawPos[deviceId] = { x, y };
     });
 
-    let pulse=0, growing=true;
+    // Render‐Loop mit Puls
+    let pulse = 0, growing = true;
     (function render(){
       ctx.clearRect(0,0,c.width,c.height);
 
+      // alle Segmente zeichnen
       for (let id in segments) {
-        for (let s of segments[id]) {
-          ctx.strokeStyle = s.color;
-          ctx.lineWidth   = s.w;
+        for (let seg of segments[id]) {
+          ctx.strokeStyle = seg.color;
+          ctx.lineWidth   = seg.w;
           ctx.beginPath();
-          ctx.moveTo(s.x1, s.y1);
-          ctx.lineTo(s.x2, s.y2);
+          ctx.moveTo(seg.x1, seg.y1);
+          ctx.lineTo(seg.x2, seg.y2);
           ctx.stroke();
         }
       }
 
+      // Puls‐Berechnung
       pulse += growing ? 0.2 : -0.2;
-      if (pulse > 2)  growing = false;
-      if (pulse < 0)  growing = true;
+      if (pulse> 2) growing = false;
+      if (pulse<  0) growing = true;
 
-      for (let id in rawPos) {
-        const { x, y } = rawPos[id];
-        const col      = lastColor[id]   || "#f00";
-        const r        = lastWidth[id]/2 + pulse;
+      // pulsierende Punkte an smoothed‐Position
+      for (let id in smoothPos) {
+        const { x, y } = smoothPos[id],
+              col     = lastColor[id]   || "#f00",
+              r       = lastWidth[id]/2 + pulse;
 
         ctx.fillStyle = col;
         ctx.beginPath();
@@ -173,6 +195,7 @@
 
       requestAnimationFrame(render);
     })();
+
   </script>
 </body>
 </html>
