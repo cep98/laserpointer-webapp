@@ -2,77 +2,81 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>Laserpointer Display v3.13.2</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Laserpointer Display v3.13.2+</title>
   <style>
-    body { margin:0; background:black; }
-    canvas { display:block; margin:auto; background:black }
+    body { margin:0; background:black; overflow:hidden }
     #version {
       position:absolute; top:10px; left:10px;
       color:white; font-family:sans-serif;
-      font-size:14px; opacity:0.6;
+      font-size:14px; opacity:0.6; z-index:10;
     }
+    canvas { display:block; margin:auto; background:black; }
   </style>
 </head>
 <body>
-  <div id="version">v3.13.2</div>
+  <div id="version">v3.13.2+</div>
   <canvas id="canvas" width="1024" height="1024"></canvas>
+
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
-    socket.emit("identify", { role:"display", deviceId:null });
+    // Direkt als Display identifizieren
+    socket.emit("identify", { role:"display", deviceId: socket.id });
 
-    const c     = document.getElementById("canvas"),
-          ctx   = c.getContext("2d"),
-          CX    = c.width/2,
-          CY    = c.height/2;
+    const c      = document.getElementById("canvas");
+    const ctx    = c.getContext("2d");
+    const CX     = c.width/2, CY = c.height/2;
 
-    // Admin‐Settings
-    let MAX_H   = 20,
-        MAX_V   = 20,
-        MIN_W   = 5,
-        MAX_W   = 12,
-        SMOOTH  = 0.15;
+    // Default-Settings (werden per Admin überschrieben)
+    let MAX_H   = 20, MAX_V   = 20, MIN_W   = 5,
+        MAX_W   = 12, SMOOTH  = 0.15,
+        SPEED_THRESHOLD = 2000;
 
-    socket.on("updateSettings", cfg => {
-      if (typeof cfg.maxAlpha === "number") MAX_H  = cfg.maxAlpha;
-      if (typeof cfg.maxBeta  === "number") MAX_V  = cfg.maxBeta;
-      if (typeof cfg.minW     === "number") MIN_W  = cfg.minW;
-      if (typeof cfg.maxW     === "number") MAX_W  = cfg.maxW;
-      if (typeof cfg.smooth   === "number") SMOOTH = cfg.smooth;
-      console.log("Settings:",{MAX_H,MAX_V,MIN_W,MAX_W,SMOOTH});
-    });
-
-    // Schwellenwert für Geschwindigkeit (px/s)
-    const SPEED_THRESHOLD = 2000;
-
-    // State pro Gerät
-    const alpha0    = {},
-          beta0     = {},
-          rawPos    = {},
-          lastTime  = {},
-          lastWidth = {},
-          lastLight = {},
-          segments  = {};  // deviceId → [ Segment, … ]
-
-    ctx.lineCap  = "round";
-    ctx.lineJoin = "round";
+    // State-Maps
+    const alpha0    = {}, beta0     = {},
+          rawPos    = {}, lastTime  = {},
+          lastWidth = {}, lastCol   = {},
+          lastLight = {}, segments  = {};
 
     function parseLight(hsl) {
       const m = hsl.match(/,\s*(\d+)%\)/);
       return m ? +m[1] : 50;
     }
 
+    ctx.lineCap  = "round";
+    ctx.lineJoin = "round";
+
+    // Admin-Updates empfangen
+    socket.on("updateSettings", cfg => {
+      if (typeof cfg.maxH   === "number") MAX_H   = cfg.maxH;
+      if (typeof cfg.maxV   === "number") MAX_V   = cfg.maxV;
+      if (typeof cfg.minW   === "number") MIN_W   = cfg.minW;
+      if (typeof cfg.maxW   === "number") MAX_W   = cfg.maxW;
+      if (typeof cfg.smooth === "number") SMOOTH  = cfg.smooth;
+      console.log("Settings:", cfg);
+    });
+
+    // Farbwechsel-Event sofort für Puls-Punkt übernehmen
+    socket.on("color-change", ({ deviceId, color }) => {
+      if (deviceId in lastCol) {
+        lastCol[deviceId]   = color;
+        lastLight[deviceId] = parseLight(color);
+      }
+    });
+
+    // Canvas leeren
     socket.on("clear", () => {
       ctx.clearRect(0,0,c.width,c.height);
       for (let id in segments) segments[id] = [];
     });
 
+    // Bewegungsdaten empfangen
     socket.on("motion", ({ alpha, beta, color, isDrawing, deviceId }) => {
       if (!deviceId || typeof alpha!=="number" || typeof beta!=="number") return;
       const now = performance.now();
 
-      // Initialisierung
+      // Initial-State anlegen
       if (!(deviceId in rawPos)) {
         rawPos[deviceId]   = { x:CX, y:CY };
         lastTime[deviceId] = now;
@@ -82,64 +86,53 @@
         beta0 [deviceId]   = null;
       }
 
-      // Kalibrierung beim ersten Mal zeichnen
+      // Kalibrierung beim ersten Draw
       if (isDrawing && alpha0[deviceId]===null) {
         alpha0[deviceId] = alpha;
         beta0 [deviceId] = beta;
       }
       if (alpha0[deviceId]===null) return;
 
-      // Winkel‐Delta + Wrap‐Around
+      // Winkel-Delta + Wrap
       let dA = alpha - alpha0[deviceId];
-      if (dA > 180)  dA -= 360;
-      if (dA < -180) dA += 360;
+      if (dA>180)  dA-=360;
+      if (dA<-180) dA+=360;
       let dB = beta - beta0[deviceId];
 
-      // clamp
-      dA = Math.max(-MAX_H, Math.min(MAX_H, dA));
-      dB = Math.max(-MAX_V, Math.min(MAX_V, dB));
+      dA = Math.max(-MAX_H,Math.min(MAX_H,dA));
+      dB = Math.max(-MAX_V,Math.min(MAX_V,dB));
 
-      // auf Canvas‐Koordinaten mappen
+      // Auf Canvas mappen
       const x = CX - (dA/MAX_H)*CX;
       const y = CY - (dB/MAX_V)*CY;
 
-      // Geschwindigkeit berechnen
+      // Geschwindigkeit
       const prev = rawPos[deviceId];
-      const dt   = (now - lastTime[deviceId]) / 1000; // s
-      const dist = Math.hypot(x - prev.x, y - prev.y);
+      const dt   = (now - lastTime[deviceId]) / 1000;
+      const dist = Math.hypot(x-prev.x, y-prev.y);
       const speed= dt>0 ? dist/dt : 0;
       lastTime[deviceId] = now;
 
+      // Segment speichern
       if (isDrawing) {
-        // normierte Geschwindigkeit und Breite
         const norm = Math.min(1, speed/SPEED_THRESHOLD);
-        const rawW = MAX_W - (MAX_W - MIN_W)*norm;
-
-        // Glätten der Breite
-        const wPrev = lastWidth[deviceId];
-        const w     = wPrev + (rawW - wPrev)*0.3;
+        const rawW = MAX_W - (MAX_W-MIN_W)*norm;
+        const w    = lastWidth[deviceId] + (rawW - lastWidth[deviceId])*0.3;
         lastWidth[deviceId] = w;
+        lastCol[deviceId]   = color;
+        lastLight[deviceId] = parseLight(color);
 
-        // Segment abspeichern – MIT DER JETZIGEN Farbe
-        segments[deviceId].push({
-          x1: prev.x,
-          y1: prev.y,
-          x2: x,
-          y2: y,
-          w:  w,
-          color
-        });
+        segments[deviceId].push({ x1: prev.x, y1: prev.y, x2: x, y2: y, w, color });
       }
-
       rawPos[deviceId] = { x, y };
     });
 
-    // Render‐Loop mit Puls
-    let pulse=0, growing=true;
-    (function render(){
+    // Render-Loop mit Puls-Punkt
+    let pulse = 0, grow = true;
+    (function loop(){
       ctx.clearRect(0,0,c.width,c.height);
 
-      // 1) Alle Segmente mit ihrer eigenen Farbe zeichnen
+      // alle Segmente zeichnen
       for (let id in segments) {
         for (let s of segments[id]) {
           ctx.strokeStyle = s.color;
@@ -151,35 +144,30 @@
         }
       }
 
-      // 2) Pulsierender Punkt an rawPos
-      pulse += growing ? 0.2 : -0.2;
-      if (pulse > 2)  growing = false;
-      if (pulse < 0)  growing = true;
+      // Puls
+      pulse += grow?0.2:-0.2;
+      if (pulse > 2) grow = false;
+      if (pulse < 0) grow = true;
 
+      // Puls-Punkt
       for (let id in rawPos) {
         const { x, y } = rawPos[id];
-        const r        = lastWidth[id]/2 + pulse;
-
-        // Füllen
-        ctx.fillStyle = segments[id].length
-          ? segments[id].slice(-1)[0].color
-          : "#f00";
+        const last = segments[id].slice(-1)[0];
+        const r    = (last? last.w : (MIN_W+MAX_W)/2)/2 + pulse;
+        ctx.fillStyle = last? last.color : "#f00";
         ctx.beginPath();
-        ctx.arc(x, y, r, 0, 2*Math.PI);
+        ctx.arc(x, y, r, 0, Math.PI*2);
         ctx.fill();
-
-        // Weißer Ring bei Dunkelheit
-        const light = parseLight(ctx.fillStyle);
-        if (light < 20) {
-          ctx.strokeStyle = "#fff";
+        if ((lastLight[id]||50) < 20) {
           ctx.lineWidth   = 3;
+          ctx.strokeStyle = "#fff";
           ctx.beginPath();
-          ctx.arc(x, y, r+3, 0, 2*Math.PI);
+          ctx.arc(x, y, r+3, 0, Math.PI*2);
           ctx.stroke();
         }
       }
 
-      requestAnimationFrame(render);
+      requestAnimationFrame(loop);
     })();
   </script>
 </body>
