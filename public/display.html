@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>Laserpointer Display v3.13.1</title>
+  <title>Laserpointer Display v3.13.2</title>
   <style>
     body { margin:0; background:black; }
-    canvas { display:block; margin:auto; background:black; }
+    canvas { display:block; margin:auto; background:black }
     #version {
       position:absolute; top:10px; left:10px;
       color:white; font-family:sans-serif;
@@ -15,19 +15,19 @@
   </style>
 </head>
 <body>
-  <div id="version">v3.13.1 (dyn. Breite via Admin)</div>
+  <div id="version">v3.13.2</div>
   <canvas id="canvas" width="1024" height="1024"></canvas>
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
-    socket.emit("identify",{ role:"display", deviceId:null });
+    socket.emit("identify", { role:"display", deviceId:null });
 
-    const canvas = document.getElementById("canvas");
-    const ctx    = canvas.getContext("2d");
-    const CX     = canvas.width/2;
-    const CY     = canvas.height/2;
+    const c     = document.getElementById("canvas"),
+          ctx   = c.getContext("2d"),
+          CX    = c.width/2,
+          CY    = c.height/2;
 
-    // Admin-Settings
+    // Admin‐Settings
     let MAX_H   = 20,
         MAX_V   = 20,
         MIN_W   = 5,
@@ -35,44 +35,44 @@
         SMOOTH  = 0.15;
 
     socket.on("updateSettings", cfg => {
-      if (typeof cfg.maxH   === "number") MAX_H  = cfg.maxH;
-      if (typeof cfg.maxV   === "number") MAX_V  = cfg.maxV;
-      if (typeof cfg.minW   === "number") MIN_W  = cfg.minW;
-      if (typeof cfg.maxW   === "number") MAX_W  = cfg.maxW;
-      if (typeof cfg.smooth === "number") SMOOTH = cfg.smooth;
-      console.log("New Settings:",{MAX_H,MAX_V,MIN_W,MAX_W,SMOOTH});
+      if (typeof cfg.maxAlpha === "number") MAX_H  = cfg.maxAlpha;
+      if (typeof cfg.maxBeta  === "number") MAX_V  = cfg.maxBeta;
+      if (typeof cfg.minW     === "number") MIN_W  = cfg.minW;
+      if (typeof cfg.maxW     === "number") MAX_W  = cfg.maxW;
+      if (typeof cfg.smooth   === "number") SMOOTH = cfg.smooth;
+      console.log("Settings:",{MAX_H,MAX_V,MIN_W,MAX_W,SMOOTH});
     });
 
-    const SPEED_THRESHOLD = 2000; // px/s
+    // Schwellenwert für Geschwindigkeit (px/s)
+    const SPEED_THRESHOLD = 2000;
 
-    // State pro Device
+    // State pro Gerät
     const alpha0    = {},
           beta0     = {},
           rawPos    = {},
           lastTime  = {},
           lastWidth = {},
-          lastCol   = {},
           lastLight = {},
-          segments  = {};
+          segments  = {};  // deviceId → [ Segment, … ]
+
+    ctx.lineCap  = "round";
+    ctx.lineJoin = "round";
 
     function parseLight(hsl) {
       const m = hsl.match(/,\s*(\d+)%\)/);
       return m ? +m[1] : 50;
     }
 
-    ctx.lineCap  = "round";
-    ctx.lineJoin = "round";
-
     socket.on("clear", () => {
-      ctx.clearRect(0,0,canvas.width,canvas.height);
-      for(let id in segments) segments[id] = [];
+      ctx.clearRect(0,0,c.width,c.height);
+      for (let id in segments) segments[id] = [];
     });
 
-    socket.on("motion", ({alpha,beta,color,isDrawing,deviceId}) => {
-      if (typeof alpha!=="number" || typeof beta!=="number" || !deviceId) return;
+    socket.on("motion", ({ alpha, beta, color, isDrawing, deviceId }) => {
+      if (!deviceId || typeof alpha!=="number" || typeof beta!=="number") return;
       const now = performance.now();
 
-      // init
+      // Initialisierung
       if (!(deviceId in rawPos)) {
         rawPos[deviceId]   = { x:CX, y:CY };
         lastTime[deviceId] = now;
@@ -82,93 +82,104 @@
         beta0 [deviceId]   = null;
       }
 
-      lastCol[deviceId]   = color;
-      lastLight[deviceId] = parseLight(color);
-
+      // Kalibrierung beim ersten Mal zeichnen
       if (isDrawing && alpha0[deviceId]===null) {
         alpha0[deviceId] = alpha;
         beta0 [deviceId] = beta;
       }
       if (alpha0[deviceId]===null) return;
 
-      // Winkel-Delta + Wrap
+      // Winkel‐Delta + Wrap‐Around
       let dA = alpha - alpha0[deviceId];
-      if (dA>180)  dA-=360;
-      if (dA<-180) dA+=360;
+      if (dA > 180)  dA -= 360;
+      if (dA < -180) dA += 360;
       let dB = beta - beta0[deviceId];
 
-      dA = Math.max(-MAX_H,Math.min(MAX_H,dA));
-      dB = Math.max(-MAX_V,Math.min(MAX_V,dB));
+      // clamp
+      dA = Math.max(-MAX_H, Math.min(MAX_H, dA));
+      dB = Math.max(-MAX_V, Math.min(MAX_V, dB));
 
-      // Map
+      // auf Canvas‐Koordinaten mappen
       const x = CX - (dA/MAX_H)*CX;
       const y = CY - (dB/MAX_V)*CY;
 
-      // Speed
-      const prev = rawPos[deviceId],
-            dt   = (now - lastTime[deviceId])/1000,
-            dist = Math.hypot(x-prev.x,y-prev.y),
-            speed= dt>0? dist/dt : 0;
+      // Geschwindigkeit berechnen
+      const prev = rawPos[deviceId];
+      const dt   = (now - lastTime[deviceId]) / 1000; // s
+      const dist = Math.hypot(x - prev.x, y - prev.y);
+      const speed= dt>0 ? dist/dt : 0;
       lastTime[deviceId] = now;
 
       if (isDrawing) {
+        // normierte Geschwindigkeit und Breite
         const norm = Math.min(1, speed/SPEED_THRESHOLD);
         const rawW = MAX_W - (MAX_W - MIN_W)*norm;
-        // w-Glättung
-        const w     = lastWidth[deviceId] + (rawW - lastWidth[deviceId])*0.3;
+
+        // Glätten der Breite
+        const wPrev = lastWidth[deviceId];
+        const w     = wPrev + (rawW - wPrev)*0.3;
         lastWidth[deviceId] = w;
 
+        // Segment abspeichern – MIT DER JETZIGEN Farbe
         segments[deviceId].push({
-          x1: prev.x, y1: prev.y,
-          x2: x,      y2: y,
-          w, color
+          x1: prev.x,
+          y1: prev.y,
+          x2: x,
+          y2: y,
+          w:  w,
+          color
         });
       }
 
-      rawPos[deviceId] = { x,y };
+      rawPos[deviceId] = { x, y };
     });
 
-    // Render-Loop
-    let pulse=true, pp=0;
-    (function draw(){
-      ctx.clearRect(0,0,canvas.width,canvas.height);
+    // Render‐Loop mit Puls
+    let pulse=0, growing=true;
+    (function render(){
+      ctx.clearRect(0,0,c.width,c.height);
 
-      // Linien
-      for(let id in segments){
-        ctx.strokeStyle = lastCol[id]||"#f00";
-        for(let s of segments[id]){
-          ctx.lineWidth = s.w;
+      // 1) Alle Segmente mit ihrer eigenen Farbe zeichnen
+      for (let id in segments) {
+        for (let s of segments[id]) {
+          ctx.strokeStyle = s.color;
+          ctx.lineWidth   = s.w;
           ctx.beginPath();
-          ctx.moveTo(s.x1,s.y1);
-          ctx.lineTo(s.x2,s.y2);
+          ctx.moveTo(s.x1, s.y1);
+          ctx.lineTo(s.x2, s.y2);
           ctx.stroke();
         }
       }
 
-      // Pulsierender Punkt
-      pp += pulse?0.2:-0.2;
-      if (pp>2) pulse=false;
-      if (pp<0) pulse=true;
+      // 2) Pulsierender Punkt an rawPos
+      pulse += growing ? 0.2 : -0.2;
+      if (pulse > 2)  growing = false;
+      if (pulse < 0)  growing = true;
 
-      for(let id in rawPos){
-        const {x,y} = rawPos[id];
-        const r     = lastWidth[id]/2 + pp;
+      for (let id in rawPos) {
+        const { x, y } = rawPos[id];
+        const r        = lastWidth[id]/2 + pulse;
 
-        ctx.fillStyle = lastCol[id]||"#f00";
+        // Füllen
+        ctx.fillStyle = segments[id].length
+          ? segments[id].slice(-1)[0].color
+          : "#f00";
         ctx.beginPath();
-        ctx.arc(x,y,r,0,2*Math.PI);
+        ctx.arc(x, y, r, 0, 2*Math.PI);
         ctx.fill();
 
-        if ((lastLight[id]||50)<20) {
-          ctx.strokeStyle="#fff";
-          ctx.lineWidth=3;
+        // Weißer Ring bei Dunkelheit
+        const light = parseLight(ctx.fillStyle);
+        if (light < 20) {
+          ctx.strokeStyle = "#fff";
+          ctx.lineWidth   = 3;
           ctx.beginPath();
-          ctx.arc(x,y,r+3,0,2*Math.PI);
+          ctx.arc(x, y, r+3, 0, 2*Math.PI);
           ctx.stroke();
         }
       }
 
-      requestAnimationFrame(draw);
+      requestAnimationFrame(render);
     })();
   </script>
 </body>
