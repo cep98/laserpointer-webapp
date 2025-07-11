@@ -1,74 +1,121 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>Admin Panel v3.10</title>
+  <meta charset="UTF-8" />
+  <title>Admin-Panel</title>
   <style>
-    body { margin:0; padding:20px; background:#111; color:#fff; font-family:sans-serif }
-    .setting { margin:12px 0 }
-    label { display:inline-block; width:240px }
-    input { width:100px; padding:4px }
-    button { padding:8px 16px; background:#c33; color:#fff; border:none; cursor:pointer }
+    body {
+      background: #111;
+      color: #fff;
+      font-family: sans-serif;
+      padding: 20px;
+    }
+    label, input {
+      display: block;
+      margin: 10px 0;
+    }
+    input {
+      padding: 5px;
+      width: 80px;
+    }
+    button {
+      padding: 10px 20px;
+      margin-top: 20px;
+      background: red;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+    #clients {
+      margin-top: 30px;
+    }
+    #clients div {
+      margin: 4px 0;
+    }
   </style>
 </head>
 <body>
-  <h1>Admin Panel v3.10</h1>
+  <h1>Admin-Panel</h1>
 
-  <div class="setting">
-    <label for="maxH">Max. Winkel horizontal (°):</label>
-    <input id="maxH" type="number" value="20" min="1" max="180"/>
-  </div>
-  <div class="setting">
-    <label for="maxV">Max. Winkel vertikal (°):</label>
-    <input id="maxV" type="number" value="20" min="1" max="180"/>
-  </div>
-  <div class="setting">
-    <label for="minW">Min. Strichstärke (px):</label>
-    <input id="minW" type="number" value="5" min="1" max="100"/>
-  </div>
-  <div class="setting">
-    <label for="maxW">Max. Strichstärke (px):</label>
-    <input id="maxW" type="number" value="12" min="1" max="200"/>
-  </div>
-  <div class="setting">
-    <label for="smooth">Glättung (0–1):</label>
-    <input id="smooth" type="number" step="0.01" value="0.15" min="0" max="1"/>
-  </div>
+  <label for="horiz">Max. Winkel horizontal (°):</label>
+  <input type="number" id="horiz" value="20" />
+
+  <label for="vert">Max. Winkel vertikal (°):</label>
+  <input type="number" id="vert" value="20" />
+
+  <!-- Neue Felder: Strichstärke -->
+  <label for="minW">Min. Strichstärke (px):</label>
+  <input type="number" id="minW" value="5" />
+
+  <label for="maxW">Max. Strichstärke (px):</label>
+  <input type="number" id="maxW" value="12" />
 
   <button id="clear">Canvas löschen</button>
 
+  <div id="clients">
+    <h2>Verbundene Geräte</h2>
+    <div id="display-status">Display: <em>—</em></div>
+    <h3>Handys:</h3>
+    <div id="phones">—</div>
+  </div>
+
   <script src="/socket.io/socket.io.js"></script>
   <script>
-    const sock   = io();
-    const eMaxH  = document.getElementById("maxH");
-    const eMaxV  = document.getElementById("maxV");
+    const socket = io();
+
+    const eHoriz = document.getElementById("horiz");
+    const eVert  = document.getElementById("vert");
     const eMinW  = document.getElementById("minW");
     const eMaxW  = document.getElementById("maxW");
-    const eSmooth= document.getElementById("smooth");
     const btnClr = document.getElementById("clear");
 
-    sock.emit("identify",{ role:"admin", deviceId:null });
+    const dispStatus = document.getElementById("display-status");
+    const phonesList = document.getElementById("phones");
 
-    function send() {
-      const cfg = {
-        maxH:   parseFloat(eMaxH.value),
-        maxV:   parseFloat(eMaxV.value),
-        minW:   parseFloat(eMinW.value),
-        maxW:   parseFloat(eMaxW.value),
-        smooth: parseFloat(eSmooth.value)
-      };
-      sock.emit("updateSettings", cfg);
+    // Canvas löschen
+    btnClr.addEventListener("click", () => {
+      socket.emit("clear");
+    });
+
+    // Einstellungen senden
+    function updateSettings() {
+      socket.emit("admin-settings", {
+        maxAlpha: parseFloat(eHoriz.value),
+        maxBeta:  parseFloat(eVert.value),
+        minW:     parseFloat(eMinW.value),
+        maxW:     parseFloat(eMaxW.value)
+      });
     }
-
-    [eMaxH,eMaxV,eMinW,eMaxW,eSmooth].forEach(el =>
-      el.addEventListener("change", send)
+    [eHoriz,eVert,eMinW,eMaxW].forEach(el =>
+      el.addEventListener("change", updateSettings)
     );
+    updateSettings();
 
-    btnClr.addEventListener("click", () => sock.emit("clear"));
-
-    // initial
-    send();
+    // Verbundene Clients anzeigen
+    const phones = new Set();
+    socket.on("client-connected", ({ role, deviceId }) => {
+      if (role === "display") {
+        dispStatus.innerHTML = "Display: <strong>verbunden</strong>";
+      }
+      if (role === "control") {
+        phones.add(deviceId);
+        renderPhones();
+      }
+    });
+    socket.on("client-disconnected", ({ role, deviceId }) => {
+      if (role === "display") {
+        dispStatus.innerHTML = "Display: <strong>nicht verbunden</strong>";
+      }
+      if (role === "control") {
+        phones.delete(deviceId);
+        renderPhones();
+      }
+    });
+    function renderPhones() {
+      phonesList.innerHTML = phones.size
+        ? Array.from(phones).map(id => `<div>${id}</div>`).join("")
+        : "—";
+    }
   </script>
 </body>
 </html>
