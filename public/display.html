@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>Laserpointer Display v3.13.8 (retro-smooth)</title>
+  <title>Laserpointer Display v3.13.9 (per-segment draw)</title>
   <style>
     body { margin:0; background:black; }
     canvas { display:block; margin:auto; background:black }
@@ -15,7 +15,7 @@
   </style>
 </head>
 <body>
-  <div id="version">v3.13.8 (retro-smooth)</div>
+  <div id="version">v3.13.9 (per-segment draw)</div>
   <canvas id="canvas" width="1024" height="1024"></canvas>
   <script src="/socket.io/socket.io.js"></script>
   <script>
@@ -27,7 +27,7 @@
           CX    = c.width/2,
           CY    = c.height/2;
 
-    // Admin‐Settings
+    // Admin‐Settings (kommen aus admin.html)
     let MAX_H   = 20,
         MAX_V   = 20,
         MIN_W   = 5,
@@ -51,8 +51,8 @@
           lastTime   = {},
           lastWidth  = {},
           wasDrawing = {},
-          segments   = {};   // deviceId → [ {x1,y1,x2,y2,w,color}, … ]
-    const lastColor  = {},
+          segments   = {},   // deviceId → [ Stroke, … ]
+          lastColor  = {},
           lastLight  = {};
 
     ctx.lineCap  = "round";
@@ -69,12 +69,12 @@
     });
 
     socket.on("motion", ({ alpha, beta, color, isDrawing, deviceId }) => {
-      if (!deviceId || typeof alpha!=="number") return;
+      if (!deviceId || typeof alpha !== "number") return;
       const now = performance.now();
       lastColor[deviceId] = color;
       lastLight[deviceId] = parseLight(color);
 
-      // Erst‐Init
+      // Erst-Init
       if (!(deviceId in rawPos)) {
         rawPos[deviceId]   = { x:CX, y:CY };
         lastTime[deviceId] = now;
@@ -86,107 +86,91 @@
       }
 
       // Kalibrierung beim ersten Zeichnen
-      if (isDrawing && alpha0[deviceId]===null) {
+      if (isDrawing && alpha0[deviceId] === null) {
         alpha0[deviceId] = alpha;
         beta0 [deviceId] = beta;
       }
-      if (alpha0[deviceId]===null) return;
+      if (alpha0[deviceId] === null) return;
 
-      // Winkel‐Delta + Wrap
+      // Winkel-Delta + Wrap-Around
       let dA = alpha - alpha0[deviceId];
-      if (dA>180)  dA-=360;
-      if (dA<-180) dA+=360;
+      if (dA > 180)  dA -= 360;
+      if (dA < -180) dA += 360;
       let dB = beta - beta0[deviceId];
 
+      // clamp
       dA = Math.max(-MAX_H, Math.min(MAX_H, dA));
       dB = Math.max(-MAX_V, Math.min(MAX_V, dB));
 
-      // Mappe
+      // map auf Canvas
       const x = CX - (dA/MAX_H)*CX;
       const y = CY - (dB/MAX_V)*CY;
 
-      // Geschwindigkeit
+      // Geschwindigkeit px/s
       const prev = rawPos[deviceId],
-            dt   = (now-lastTime[deviceId])/1000,
-            dist = Math.hypot(x-prev.x, y-prev.y),
+            dt   = (now - lastTime[deviceId]) / 1000,
+            dist = Math.hypot(x - prev.x, y - prev.y),
             speed= dt>0 ? dist/dt : 0;
       lastTime[deviceId] = now;
       rawPos[deviceId]   = { x,y };
 
-      // Stroke‐Separator
+      // Stroke-Separator
       if (isDrawing && !wasDrawing[deviceId]) {
-        segments[deviceId].push([]); // neuer Stroke
+        segments[deviceId].push([]);
       }
       wasDrawing[deviceId] = isDrawing;
 
       if (isDrawing) {
-        // Normierung → Breite
+        // Breite berechnen & glätten
         const norm = Math.min(1, speed/SPEED_THRESHOLD),
-              rawW = MAX_W - (MAX_W-MIN_W)*norm,
+              rawW = MAX_W - (MAX_W - MIN_W)*norm,
               prevW= lastWidth[deviceId],
-              w    = prevW + (rawW-prevW)*SMOOTH;
+              w    = prevW + (rawW - prevW)*SMOOTH;
         lastWidth[deviceId] = w;
 
-        const currSegs = segments[deviceId];
-        const pts = currSegs[currSegs.length-1];
-
-        // **Retro‐Smoothing:** passe die Breite des vorherigen Punktes an
-        if (pts.length>=1) {
-          pts[pts.length-1].w = (pts[pts.length-1].w + w)/2;
-        }
-
-        // neuen Punkt hinzufügen
-        pts.push({ x, y, w, color });
+        // Neues Segment-Segment im aktuellen Stroke
+        const stroke = segments[deviceId].slice(-1)[0];
+        stroke.push({ x:prev.x, y:prev.y, x2:x, y2:y, w, color });
       }
     });
 
-    // Bezier‐Glättung über je 3 Punkte
-    function drawStroke(pts) {
-      if (pts.length<2) return;
-      ctx.beginPath();
-      ctx.moveTo(pts[0].x, pts[0].y);
-      for (let i=1; i<pts.length-1; i++) {
-        const p0=pts[i-1], p1=pts[i], p2=pts[i+1],
-              cx=(p1.x+p2.x)/2, cy=(p1.y+p2.y)/2;
-        ctx.strokeStyle = p1.color;
-        ctx.lineWidth   = p1.w;
-        ctx.quadraticCurveTo(p1.x,p1.y, cx,cy);
-      }
-      // letzter Punkt
-      const L = pts.length-1, last=pts[L];
-      ctx.lineTo(last.x,last.y);
-      ctx.stroke();
-    }
-
-    // Render + Puls
-    let pulse=0, grow=true;
+    // Render-Loop + Puls
+    let pulse=0, growing=true;
     (function render(){
       ctx.clearRect(0,0,c.width,c.height);
 
-      // 1) alle Strokes
+      // 1) Zeichne *jedes* kleine Segment einzeln
       for (let id in segments) {
         for (let stroke of segments[id]) {
-          drawStroke(stroke);
+          for (let seg of stroke) {
+            ctx.beginPath();
+            ctx.strokeStyle = seg.color;
+            ctx.lineWidth   = seg.w;
+            ctx.moveTo(seg.x, seg.y);
+            ctx.lineTo(seg.x2, seg.y2);
+            ctx.stroke();
+          }
         }
       }
 
-      // 2) pulsierender Punkt
-      pulse += grow?0.2:-0.2;
-      if (pulse>2) grow=false;
-      if (pulse<0) grow=true;
+      // 2) Pulsierender Punkt
+      pulse += growing ? 0.2 : -0.2;
+      if (pulse > 2)  growing = false;
+      if (pulse < 0)  growing = true;
 
       for (let id in rawPos) {
-        const { x,y } = rawPos[id],
-              r      = lastWidth[id]/2 + pulse,
-              col    = lastColor[id] || "#f00";
+        const { x, y } = rawPos[id];
+        const r        = lastWidth[id]/2 + pulse;
+        const col      = lastColor[id] || "#f00";
+
         ctx.beginPath();
-        ctx.fillStyle=col;
+        ctx.fillStyle = col;
         ctx.arc(x,y,r,0,2*Math.PI);
         ctx.fill();
 
-        if ((lastLight[id]||50)<20) {
-          ctx.strokeStyle="#fff";
-          ctx.lineWidth=3;
+        if ((lastLight[id]||50) < 20) {
+          ctx.strokeStyle = "#fff";
+          ctx.lineWidth   = 3;
           ctx.beginPath();
           ctx.arc(x,y,r+3,0,2*Math.PI);
           ctx.stroke();
