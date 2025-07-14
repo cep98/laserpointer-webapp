@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>Laserpointer Display v3.13.7</title>
+  <title>Laserpointer Display v3.13.8</title>
   <style>
     body { margin:0; background:black; }
     canvas { display:block; margin:auto; background:black }
@@ -15,7 +15,7 @@
   </style>
 </head>
 <body>
-  <div id="version">v3.13.7 (settings fix)</div>
+  <div id="version">v3.13.8 (continuous paths)</div>
   <canvas id="canvas" width="1024" height="1024"></canvas>
   <script src="/socket.io/socket.io.js"></script>
   <script>
@@ -27,25 +27,16 @@
           CX   = c.width/2,
           CY   = c.height/2;
 
-    // Admin‐Settings (werden per Admin-Panel gesetzt)
-    let MAX_H   = 20,
-        MAX_V   = 20,
-        MIN_W   = 5,
-        MAX_W   = 12,
-        SMOOTH  = 0.15;
-
-    socket.on("updateSettings", cfg => {
-      if (typeof cfg.maxH   === "number") MAX_H  = cfg.maxH;
-      if (typeof cfg.maxV   === "number") MAX_V  = cfg.maxV;
-      if (typeof cfg.minW   === "number") MIN_W  = cfg.minW;
-      if (typeof cfg.maxW   === "number") MAX_W  = cfg.maxW;
-      if (typeof cfg.smooth === "number") SMOOTH = cfg.smooth;
-      console.log("Settings:", {MAX_H,MAX_V,MIN_W,MAX_W,SMOOTH});
+    let MAX_H=20, MAX_V=20, MIN_W=5, MAX_W=12, SMOOTH=0.15;
+    socket.on("updateSettings", cfg=>{
+      if(typeof cfg.maxH==="number")  MAX_H  = cfg.maxH;
+      if(typeof cfg.maxV==="number")  MAX_V  = cfg.maxV;
+      if(typeof cfg.minW==="number")  MIN_W  = cfg.minW;
+      if(typeof cfg.maxW==="number")  MAX_W  = cfg.maxW;
+      if(typeof cfg.smooth==="number")SMOOTH = cfg.smooth;
     });
 
     const SPEED_THRESHOLD = 2000;
-
-    // State pro Gerät
     const alpha0     = {},
           beta0      = {},
           rawPos     = {},
@@ -67,134 +58,124 @@
       return m ? +m[1] : 50;
     }
 
-    socket.on("clear", () => {
+    socket.on("clear",()=>{
+      for(let id in segments) segments[id] = [];
       ctx.clearRect(0,0,c.width,c.height);
-      for (let id in segments) segments[id] = [];
     });
 
-    socket.on("motion", ({ alpha, beta, color, isDrawing, deviceId }) => {
-      if (!deviceId || typeof alpha!=="number") return;
+    socket.on("motion", ({alpha,beta,color,isDrawing,deviceId})=>{
+      if(!deviceId||typeof alpha!=="number") return;
       const now = performance.now();
-
-      // Beim ersten Mal initialisieren
-      if (!(deviceId in rawPos)) {
-        rawPos[deviceId]    = { x:CX, y:CY };
-        smoothPos[deviceId] = { x:CX, y:CY };
+      // Erstinitialisierung
+      if(!(deviceId in rawPos)){
+        rawPos[deviceId]    = {x:CX,y:CY};
+        smoothPos[deviceId] = {x:CX,y:CY};
         lastTime[deviceId]  = now;
         lastWidth[deviceId] = (MIN_W+MAX_W)/2;
         prev1[deviceId]     = null;
         prev2[deviceId]     = null;
-        wasDrawing[deviceId]= false;
+        wasDrawing[deviceId]=false;
         segments[deviceId]  = [];
       }
-
-      // Farbe/Helligkeit updaten
       lastColor[deviceId] = color;
       lastLight[deviceId] = parseLight(color);
 
-      // Kalibrieren beim ersten Zeichnen
-      if (isDrawing && alpha0[deviceId] === undefined) {
-        alpha0[deviceId] = alpha;
-        beta0 [deviceId] = beta;
+      // Kalibrierung
+      if(isDrawing && alpha0[deviceId]===undefined) {
+        alpha0[deviceId]=alpha;
+        beta0 [deviceId]=beta;
       }
-      if (alpha0[deviceId] === undefined) return;
+      if(alpha0[deviceId]===undefined) return;
 
-      // Winkel‐Delta + Wrap
-      let dA = alpha - alpha0[deviceId];
-      if (dA>180)  dA-=360;
-      if (dA<-180) dA+=360;
-      let dB = beta - beta0[deviceId];
-      dA = Math.max(-MAX_H, Math.min(MAX_H, dA));
-      dB = Math.max(-MAX_V, Math.min(MAX_V, dB));
+      // Delta + clamp
+      let dA=alpha-alpha0[deviceId];
+      if(dA>180)dA-=360; if(dA<-180)dA+=360;
+      let dB=beta-beta0[deviceId];
+      dA=Math.max(-MAX_H,Math.min(MAX_H,dA));
+      dB=Math.max(-MAX_V,Math.min(MAX_V,dB));
 
-      // Rohe Position
+      // roher Punkt
       const rawX = CX - (dA/MAX_H)*CX,
             rawY = CY - (dB/MAX_V)*CY;
 
-      // Glätten der Position
+      // glätten
       const sp = smoothPos[deviceId];
-      sp.x += (rawX - sp.x) * SMOOTH;
-      sp.y += (rawY - sp.y) * SMOOTH;
+      sp.x += (rawX-sp.x)*SMOOTH;
+      sp.y += (rawY-sp.y)*SMOOTH;
 
       // Geschwindigkeit
-      const prevRaw = rawPos[deviceId],
-            dt      = (now - lastTime[deviceId])/1000,
-            dist    = Math.hypot(rawX - prevRaw.x, rawY - prevRaw.y),
-            speed   = dt>0 ? dist/dt : 0;
-      lastTime[deviceId] = now;
-      rawPos[deviceId]   = { x:rawX, y:rawY };
+      const pr = rawPos[deviceId],
+            dt = (now-lastTime[deviceId])/1000,
+            dist = Math.hypot(rawX-pr.x,rawY-pr.y),
+            speed = dt>0? dist/dt : 0;
+      lastTime[deviceId]=now;
+      rawPos[deviceId]={x:rawX,y:rawY};
 
-      // Wenn neu gezeichnet wird, resetten wir den Bézier-Speicher
-      if (isDrawing && !wasDrawing[deviceId]) {
-        prev1[deviceId] = null;
-        prev2[deviceId] = null;
+      // Wenn man gerade neu zeichnet, Bézier‐History resetten
+      if(isDrawing && !wasDrawing[deviceId]){
+        prev1[deviceId]=null;
+        prev2[deviceId]=null;
       }
-      wasDrawing[deviceId] = isDrawing;
+      wasDrawing[deviceId]=isDrawing;
 
-      if (isDrawing) {
-        // Dynamische Breite
-        const norm = Math.min(1, speed/SPEED_THRESHOLD),
-              rawW = MAX_W - (MAX_W - MIN_W)*norm,
-              w    = lastWidth[deviceId] + (rawW - lastWidth[deviceId]) * 0.3;
-        lastWidth[deviceId] = w;
-
-        // Punkt-Historie
-        prev2[deviceId] = prev1[deviceId];
-        prev1[deviceId] = { x:sp.x, y:sp.y };
-
-        // Bézier‐Segment (erst ab 3 Punkten)
-        if (prev2[deviceId]) {
+      if(isDrawing){
+        // Breite
+        const norm = Math.min(1,speed/SPEED_THRESHOLD),
+              rawW = MAX_W - (MAX_W-MIN_W)*norm,
+              w = lastWidth[deviceId] + (rawW-lastWidth[deviceId])*0.3;
+        lastWidth[deviceId]=w;
+        // Punkte rotieren
+        prev2[deviceId]=prev1[deviceId];
+        prev1[deviceId]={x:sp.x,y:sp.y};
+        // Bézier‐Push (erst ab 3 Punkten)
+        if(prev2[deviceId]){
           segments[deviceId].push({
-            p0: prev2[deviceId],
-            p1: prev1[deviceId],
-            p2: { x:sp.x, y:sp.y },
-            color, w
+            p0:prev2[deviceId], p1:prev1[deviceId],
+            p2:{x:sp.x,y:sp.y}, w, color
           });
         }
       }
     });
 
     // Render‐Loop
-    let pulse = 0, growing = true;
+    let pulse=0, growing=true;
     (function render(){
       ctx.clearRect(0,0,c.width,c.height);
 
-      // 1) Alle Bézier‐Segmente zeichnen
-      for (let id in segments) {
-        for (let seg of segments[id]) {
-          ctx.strokeStyle = seg.color;
-          ctx.lineWidth   = seg.w;
-          ctx.beginPath();
-          ctx.moveTo(seg.p0.x, seg.p0.y);
-          ctx.quadraticCurveTo(seg.p1.x, seg.p1.y, seg.p2.x, seg.p2.y);
-          ctx.stroke();
+      // pro Device einen kompletten Pfad zeichnen
+      for(let id in segments){
+        const segs=segments[id];
+        if(!segs.length) continue;
+        ctx.beginPath();
+        // startpunkt
+        ctx.moveTo(segs[0].p0.x,segs[0].p0.y);
+        for(let s of segs){
+          ctx.strokeStyle = s.color;
+          ctx.lineWidth   = s.w;
+          ctx.quadraticCurveTo(s.p1.x,s.p1.y,s.p2.x,s.p2.y);
         }
+        ctx.stroke();
       }
 
-      // 2) Pulsierender Punkt
-      pulse += growing ? 0.2 : -0.2;
-      if (pulse > 2)  growing = false;
-      if (pulse < 0)  growing = true;
-
-      for (let id in smoothPos) {
-        const { x, y } = smoothPos[id],
-              col     = lastColor[id] || "#f00",
-              r       = lastWidth[id]/2 + pulse;
-
-        ctx.fillStyle = col;
+      // pulsierender Punkt
+      pulse += growing?0.2:-0.2;
+      if(pulse>2)  growing=false;
+      if(pulse<0)  growing=true;
+      for(let id in smoothPos){
+        const {x,y}=smoothPos[id],
+              col = lastColor[id]||"#f00",
+              r   = lastWidth[id]/2 + pulse;
+        ctx.fillStyle=col;
         ctx.beginPath();
         ctx.arc(x,y,r,0,2*Math.PI);
         ctx.fill();
-
-        if ((lastLight[id]||50) < 20) {
-          ctx.strokeStyle = "#fff";
-          ctx.lineWidth   = 3;
+        if((lastLight[id]||50)<20){
+          ctx.strokeStyle="#fff"; ctx.lineWidth=3;
           ctx.beginPath();
           ctx.arc(x,y,r+3,0,2*Math.PI);
           ctx.stroke();
         }
       }
-
       requestAnimationFrame(render);
     })();
   </script>
