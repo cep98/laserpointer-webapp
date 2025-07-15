@@ -165,33 +165,42 @@
       }
     });
 
-    // Pulsating dot
-    let pulse=0, grow=true;
-    (function drawPulse() {
-      ctxFG.clearRect(0,0,fg.width,fg.height);
-      pulse += grow?0.2:-0.2;
-      if (pulse>2) grow=false;
-      if (pulse<0) grow=true;
+    // --- Overlay: Pulsierender Punkt ---
+let pulse = 0, growing = true;
+(function drawPulse() {
+  ctxFG.clearRect(0, 0, fg.width, fg.height);
 
-      for (let id in rawPos) {
-        const { x,y } = rawPos[id],
-              r      = (lastWidth[id]||((MIN_W+MAX_W)/2))/2 + pulse,
-              col    = lastColor[id]||"#f00";
-        ctxFG.beginPath();
-        ctxFG.fillStyle = col;
-        ctxFG.arc(x,y,r,0,2*Math.PI);
-        ctxFG.fill();
+  // Puls‑Berechnung
+  pulse += growing ? 0.2 : -0.2;
+  if (pulse > 2) growing = false;
+  if (pulse < 0) growing = true;
 
-        if ((lastLight[id]||50) < 20) {
-          ctxFG.beginPath();
-          ctxFG.strokeStyle = "#fff";
-          ctxFG.lineWidth   = 3;
-          ctxFG.arc(x,y,r+3,0,2*Math.PI);
-          ctxFG.stroke();
-        }
-      }
-      requestAnimationFrame(drawPulse);
-    })();
+  // Pro Device einen Punkt zeichnen
+  for (let id in rawPos) {
+    const { x, y } = rawPos[id];
+    const r        = (lastWidth[id] || ((MIN_W + MAX_W)/2)) / 2 + pulse;
+    const col      = lastColor[id] || "#f00";
+    const light   = lastLight[id] || 50;
+
+    // Punkt immer mit der gewählten Farbe füllen
+    ctxFG.beginPath();
+    ctxFG.fillStyle = col;
+    ctxFG.arc(x, y, r, 0, Math.PI*2);
+    ctxFG.fill();
+
+    // Weißen Kreis zeichnen, wenn Helligkeit < 20% (inkl. 0%)
+    if (light < 20) {
+      ctxFG.beginPath();
+      ctxFG.strokeStyle = "#fff";
+      ctxFG.lineWidth   = 3;
+      ctxFG.arc(x, y, r + 3, 0, Math.PI*2);
+      ctxFG.stroke();
+    }
+  }
+
+  requestAnimationFrame(drawPulse);
+})();
+
   </script>
 </body>
 </html>
