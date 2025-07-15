@@ -78,3 +78,19 @@ const PORT = process.env.PORT || 3000;
 http.listen(PORT, () => {
   console.log(`Server läuft auf Port ${PORT}`);
 });
+io.on("connection", socket => {
+  // bestehende Handler…
+
+  // Ein Control‐Client meldet Kick an
+  socket.on("kick", ({ deviceId }) => {
+    // finde das Socket-Objekt mit dieser deviceId
+    for (let [id, s] of io.of("/").sockets) {
+      if (s.deviceId === deviceId) {
+        s.disconnect(true);
+        break;
+      }
+    }
+    // und aktualisiere die Client-Liste
+    broadcastClientList();
+  });
+});
