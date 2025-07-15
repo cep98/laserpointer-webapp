@@ -3,11 +3,15 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Laserpointer Display v3.20 (CR smoothing + immediate fallback)</title>
+  <title>Laserpointer Display v3.20.1 (CR smoothing + fallback)</title>
   <style>
     body { margin:0; background:black; overflow:hidden }
     #container { position:relative; width:1024px; height:1024px; margin:auto }
-    canvas { position:absolute; top:0; left:0; background:black }
+    /* Hintergrund‑Canvas: schwarzer Hintergrund */
+    #bgCanvas { position:absolute; top:0; left:0; background:black; }
+    /* Vordergrund‑Canvas: transparent, nur Punkt darauf */
+    #fgCanvas { position:absolute; top:0; left:0; background:transparent; }
+    canvas { display:block }
     #version {
       position:absolute; top:10px; left:10px;
       color:white; font-family:sans-serif;
@@ -16,7 +20,7 @@
   </style>
 </head>
 <body>
-  <div id="version">v3.20 (CR smoothing + fallback)</div>
+  <div id="version">v3.20.1</div>
   <div id="container">
     <canvas id="bgCanvas" width="1024" height="1024"></canvas>
     <canvas id="fgCanvas" width="1024" height="1024"></canvas>
@@ -34,7 +38,6 @@
           CX    = bg.width/2,
           CY    = bg.height/2;
 
-    // Admin‑Settings
     let MAX_H = 20, MAX_V = 20, MIN_W = 5, MAX_W = 12, SMOOTH = 0.15;
     socket.on("updateSettings", cfg => {
       if (typeof cfg.maxH   === "number") MAX_H  = cfg.maxH;
@@ -44,14 +47,12 @@
       if (typeof cfg.smooth === "number") SMOOTH = cfg.smooth;
     });
 
-    const SPEED_THRESH = 2000;  // px/s
-
-    // State per device
-    const alpha0    = {},  beta0     = {},
-          rawPos    = {},  lastTime  = {},
-          lastWidth = {},  wasDraw   = {},
-          strokes   = {},  lastColor = {},
-          lastLight = {};
+    const SPEED_THRESH = 2000;
+    const alpha0     ={}, beta0     ={},
+          rawPos     ={}, lastTime  ={},
+          lastWidth  ={}, wasDraw   ={},
+          strokes    ={}, lastColor ={},
+          lastLight  ={};
 
     ctxBG.lineCap  = "round";
     ctxBG.lineJoin = "round";
@@ -61,7 +62,6 @@
       return m ? +m[1] : 50;
     }
 
-    // Catmull‑Rom helper
     function crPoint(p0,p1,p2,p3,t) {
       const t2 = t*t, t3 = t2*t;
       return {
@@ -70,18 +70,15 @@
       };
     }
 
-    // clear
     socket.on("clear", () => {
       ctxBG.clearRect(0,0,bg.width,bg.height);
       for (let id in strokes) strokes[id] = [];
     });
 
-    // receive motion
     socket.on("motion", ({alpha,beta,color,isDrawing,deviceId}) => {
       if (!deviceId || typeof alpha !== "number") return;
       const now = performance.now();
 
-      // initialize
       if (!(deviceId in rawPos)) {
         rawPos[deviceId]   = { x:CX, y:CY };
         lastTime[deviceId] = now;
@@ -92,57 +89,47 @@
         beta0[deviceId]    = null;
       }
 
-      // remember color/light
       lastColor[deviceId] = color;
       lastLight[deviceId] = parseLight(color);
 
-      // calibrate on first draw
       if (isDrawing && alpha0[deviceId]===null) {
         alpha0[deviceId] = alpha;
         beta0[deviceId]  = beta;
       }
       if (alpha0[deviceId]===null) return;
 
-      // compute mapped x,y
       let dA = alpha - alpha0[deviceId];
       if (dA>180) dA-=360; if (dA<-180) dA+=360;
       let dB = beta - beta0[deviceId];
       dA = Math.max(-MAX_H,Math.min(MAX_H,dA));
       dB = Math.max(-MAX_V,Math.min(MAX_V,dB));
-      const x = CX - (dA/MAX_H)*CX;
-      const y = CY - (dB/MAX_V)*CY;
 
-      // speed
+      const x = CX - (dA/MAX_H)*CX,
+            y = CY - (dB/MAX_V)*CY;
+
       const prev = rawPos[deviceId],
             dt   = (now - lastTime[deviceId])/1000,
             dist = Math.hypot(x-prev.x, y-prev.y),
             speed= dt>0 ? dist/dt : 0;
-      rawPos[deviceId]   = { x,y };
-      lastTime[deviceId] = now;
+      rawPos[deviceId] = { x,y };
+      lastTime[deviceId]= now;
 
-      // new stroke block?
       if (isDrawing && !wasDraw[deviceId]) strokes[deviceId].push([]);
       wasDraw[deviceId] = isDrawing;
 
       if (isDrawing) {
-        // compute width
         const norm = Math.min(1, speed/SPEED_THRESH),
               rawW = MAX_W - (MAX_W-MIN_W)*norm,
               wPrev= lastWidth[deviceId],
               w    = wPrev + (rawW - wPrev)*SMOOTH;
         lastWidth[deviceId] = w;
 
-        // append point
         const curr = strokes[deviceId].slice(-1)[0];
         curr.push({ x,y,w,color });
 
-        // now draw fallback or CR:
         const L = curr.length;
-        if (L===1) {
-          // nothing
-        } else if (L===2) {
-          // straight line
-          const p0 = curr[0], p1 = curr[1];
+        if (L===2) {
+          const [p0,p1] = curr;
           ctxBG.beginPath();
           ctxBG.strokeStyle = p0.color;
           ctxBG.lineWidth   = p1.w;
@@ -150,7 +137,6 @@
           ctxBG.lineTo(p1.x,p1.y);
           ctxBG.stroke();
         } else if (L===3) {
-          // quadratic
           const [p0,p1,p2] = curr;
           ctxBG.beginPath();
           ctxBG.strokeStyle = p1.color;
@@ -158,12 +144,9 @@
           ctxBG.moveTo(p0.x,p0.y);
           ctxBG.quadraticCurveTo(p1.x,p1.y,p2.x,p2.y);
           ctxBG.stroke();
-        } else {
-          // Catmull‑Rom for last 4 points
-          const p0 = curr[L-4],
-                p1 = curr[L-3],
-                p2 = curr[L-2],
-                p3 = curr[L-1],
+        } else if (L>3) {
+          const p0 = curr[L-4], p1 = curr[L-3],
+                p2 = curr[L-2], p3 = curr[L-1],
                 steps = Math.ceil(Math.hypot(p2.x-p1.x,p2.y-p1.y)/8)+1;
           let prevPt = p1;
           for (let i=1; i<=steps; i++) {
@@ -182,19 +165,18 @@
       }
     });
 
-    // pulsating dot on fg
-    let pulse=0, growing=true;
-    function drawPulse() {
+    // Pulsating dot
+    let pulse=0, grow=true;
+    (function drawPulse() {
       ctxFG.clearRect(0,0,fg.width,fg.height);
-      pulse += growing?0.2:-0.2;
-      if (pulse>2) growing=false;
-      if (pulse<0) growing=true;
+      pulse += grow?0.2:-0.2;
+      if (pulse>2) grow=false;
+      if (pulse<0) grow=true;
 
       for (let id in rawPos) {
         const { x,y } = rawPos[id],
               r      = (lastWidth[id]||((MIN_W+MAX_W)/2))/2 + pulse,
               col    = lastColor[id]||"#f00";
-
         ctxFG.beginPath();
         ctxFG.fillStyle = col;
         ctxFG.arc(x,y,r,0,2*Math.PI);
@@ -209,8 +191,7 @@
         }
       }
       requestAnimationFrame(drawPulse);
-    }
-    drawPulse();
+    })();
   </script>
 </body>
 </html>
