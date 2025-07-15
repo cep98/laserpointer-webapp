@@ -2,15 +2,15 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Laserpointer Display v3.20.1 (CR smoothing + fallback)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Laserpointer Display v3.19 (static + CR smoothing + Pulse + Jitter‑Filter)</title>
   <style>
     body { margin:0; background:black; overflow:hidden }
     #container { position:relative; width:1024px; height:1024px; margin:auto }
-    /* Hintergrund‑Canvas: schwarzer Hintergrund */
-    #bgCanvas { position:absolute; top:0; left:0; background:black; }
-    /* Vordergrund‑Canvas: transparent, nur Punkt darauf */
-    #fgCanvas { position:absolute; top:0; left:0; background:transparent; }
+    /* statischer Hintergrund */
+    #bgCanvas { position:absolute; top:0; left:0; background:black }
+    /* transparente Ebene für den pulsierenden Punkt */
+    #fgCanvas { position:absolute; top:0; left:0; background:transparent }
     canvas { display:block }
     #version {
       position:absolute; top:10px; left:10px;
@@ -20,16 +20,15 @@
   </style>
 </head>
 <body>
-  <div id="version">v3.20.1</div>
+  <div id="version">v3.19 (static+CR smoothing+Jitter‑Filter)</div>
   <div id="container">
     <canvas id="bgCanvas" width="1024" height="1024"></canvas>
     <canvas id="fgCanvas" width="1024" height="1024"></canvas>
   </div>
-
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
-    socket.emit("identify",{ role:"display", deviceId:null });
+    socket.emit("identify", { role:"display", deviceId:null });
 
     const bg    = document.getElementById("bgCanvas"),
           fg    = document.getElementById("fgCanvas"),
@@ -38,47 +37,52 @@
           CX    = bg.width/2,
           CY    = bg.height/2;
 
-    let MAX_H = 20, MAX_V = 20, MIN_W = 5, MAX_W = 12, SMOOTH = 0.15;
+    // Admin‑Werte
+    let MAX_H = 20, MAX_V = 20, MIN_W = 5, MAX_W = 12, JITTER = 0.2;
     socket.on("updateSettings", cfg => {
       if (typeof cfg.maxH   === "number") MAX_H  = cfg.maxH;
       if (typeof cfg.maxV   === "number") MAX_V  = cfg.maxV;
       if (typeof cfg.minW   === "number") MIN_W  = cfg.minW;
       if (typeof cfg.maxW   === "number") MAX_W  = cfg.maxW;
-      if (typeof cfg.smooth === "number") SMOOTH = cfg.smooth;
+      if (typeof cfg.smooth === "number") JITTER = cfg.smooth;  // jetzt Jitter‐Faktor
     });
 
-    const SPEED_THRESH = 2000;
-    const alpha0     ={}, beta0     ={},
-          rawPos     ={}, lastTime  ={},
-          lastWidth  ={}, wasDraw   ={},
-          strokes    ={}, lastColor ={},
-          lastLight  ={};
+    const SPEED_THRESH = 2000;  // px/s
+    const alpha0     = {}, beta0     = {},
+          rawPos     = {}, lastTime  = {},
+          lastWidth  = {}, wasDraw   = {},
+          strokes    = {}, lastColor = {},
+          lastLight  = {};
 
-    ctxBG.lineCap  = "round";
-    ctxBG.lineJoin = "round";
+    // für Puls: geglättete Punktposition
+    const jitterPos = {};
 
     function parseLight(hsl) {
       const m = hsl.match(/,\s*(\d+)%\)/);
       return m ? +m[1] : 50;
     }
-
-    function crPoint(p0,p1,p2,p3,t) {
-      const t2 = t*t, t3 = t2*t;
+    function crPoint(p0,p1,p2,p3,t){
+      const t2=t*t,t3=t2*t;
       return {
         x: 0.5*(2*p1.x + (p2.x-p0.x)*t + (2*p0.x-5*p1.x+4*p2.x-p3.x)*t2 + (-p0.x+3*p1.x-3*p2.x+p3.x)*t3),
         y: 0.5*(2*p1.y + (p2.y-p0.y)*t + (2*p0.y-5*p1.y+4*p2.y-p3.y)*t2 + (-p0.y+3*p1.y-3*p2.y+p3.y)*t3)
       };
     }
 
+    ctxBG.lineCap  = "round";
+    ctxBG.lineJoin = "round";
+
     socket.on("clear", () => {
       ctxBG.clearRect(0,0,bg.width,bg.height);
       for (let id in strokes) strokes[id] = [];
+      for (let id in jitterPos) delete jitterPos[id];
     });
 
     socket.on("motion", ({alpha,beta,color,isDrawing,deviceId}) => {
-      if (!deviceId || typeof alpha !== "number") return;
+      if (!deviceId || typeof alpha!=="number") return;
       const now = performance.now();
 
+      // Erst‑Init
       if (!(deviceId in rawPos)) {
         rawPos[deviceId]   = { x:CX, y:CY };
         lastTime[deviceId] = now;
@@ -89,34 +93,42 @@
         beta0[deviceId]    = null;
       }
 
+      // Farbe & Helligkeit speichern
       lastColor[deviceId] = color;
       lastLight[deviceId] = parseLight(color);
 
+      // Kalibrierung beim ersten Zeichnen
       if (isDrawing && alpha0[deviceId]===null) {
         alpha0[deviceId] = alpha;
-        beta0[deviceId]  = beta;
+        beta0 [deviceId] = beta;
       }
       if (alpha0[deviceId]===null) return;
 
+      // Winkel-Delta + Wrap-Around
       let dA = alpha - alpha0[deviceId];
-      if (dA>180) dA-=360; if (dA<-180) dA+=360;
+      if (dA>180)  dA-=360;
+      if (dA<-180) dA+=360;
       let dB = beta - beta0[deviceId];
-      dA = Math.max(-MAX_H,Math.min(MAX_H,dA));
-      dB = Math.max(-MAX_V,Math.min(MAX_V,dB));
+      dA = Math.max(-MAX_H, Math.min(MAX_H, dA));
+      dB = Math.max(-MAX_V, Math.min(MAX_V, dB));
 
+      // Zu Canvas-Koordinaten
       const x = CX - (dA/MAX_H)*CX,
             y = CY - (dB/MAX_V)*CY;
 
-      const prev = rawPos[deviceId],
-            dt   = (now - lastTime[deviceId])/1000,
-            dist = Math.hypot(x-prev.x, y-prev.y),
-            speed= dt>0 ? dist/dt : 0;
-      rawPos[deviceId] = { x,y };
-      lastTime[deviceId]= now;
+      // Geschwindigkeit
+      const prev  = rawPos[deviceId],
+            dt    = (now - lastTime[deviceId])/1000,
+            dist  = Math.hypot(x-prev.x, y-prev.y),
+            speed = dt>0 ? dist/dt : 0;
+      rawPos[deviceId]   = { x,y };
+      lastTime[deviceId] = now;
 
+      // Neuer Stroke‑Block?
       if (isDrawing && !wasDraw[deviceId]) strokes[deviceId].push([]);
       wasDraw[deviceId] = isDrawing;
 
+      // Linien‑Logik (fallback → quadratic → CR), unverändert
       if (isDrawing) {
         const norm = Math.min(1, speed/SPEED_THRESH),
               rawW = MAX_W - (MAX_W-MIN_W)*norm,
@@ -126,7 +138,6 @@
 
         const curr = strokes[deviceId].slice(-1)[0];
         curr.push({ x,y,w,color });
-
         const L = curr.length;
         if (L===2) {
           const [p0,p1] = curr;
@@ -150,9 +161,9 @@
                 steps = Math.ceil(Math.hypot(p2.x-p1.x,p2.y-p1.y)/8)+1;
           let prevPt = p1;
           for (let i=1; i<=steps; i++) {
-            const t = i/steps,
-                  pt= crPoint(p0,p1,p2,p3,t),
-                  ww= p1.w*(1-t)+p2.w*t;
+            const t  = i/steps,
+                  pt = crPoint(p0,p1,p2,p3,t),
+                  ww = p1.w*(1-t)+p2.w*t;
             ctxBG.beginPath();
             ctxBG.strokeStyle = p1.color;
             ctxBG.lineWidth   = ww;
@@ -165,42 +176,48 @@
       }
     });
 
-    // --- Overlay: Pulsierender Punkt ---
-let pulse = 0, growing = true;
-(function drawPulse() {
-  ctxFG.clearRect(0, 0, fg.width, fg.height);
+    // --- Pulsierender Punkt mit Jitter-Glättung ---
+    let pulse = 0, growing = true;
+    (function drawPulse(){
+      ctxFG.clearRect(0,0,fg.width,fg.height);
 
-  // Puls‑Berechnung
-  pulse += growing ? 0.2 : -0.2;
-  if (pulse > 2) growing = false;
-  if (pulse < 0) growing = true;
+      // Update der puls-Animation
+      pulse += growing ? 0.2 : -0.2;
+      if (pulse > 2)  growing = false;
+      if (pulse < 0)  growing = true;
 
-  // Pro Device einen Punkt zeichnen
-  for (let id in rawPos) {
-    const { x, y } = rawPos[id];
-    const r        = (lastWidth[id] || ((MIN_W + MAX_W)/2)) / 2 + pulse;
-    const col      = lastColor[id] || "#f00";
-    const light   = lastLight[id] || 50;
+      // für jedes Device den Punkt mit Filter zeichnen
+      for (let id in rawPos) {
+        // initialisiere jitterPos
+        if (!(id in jitterPos)) jitterPos[id] = {...rawPos[id]};
 
-    // Punkt immer mit der gewählten Farbe füllen
-    ctxFG.beginPath();
-    ctxFG.fillStyle = col;
-    ctxFG.arc(x, y, r, 0, Math.PI*2);
-    ctxFG.fill();
+        // Jitter‑Filter: geglättete Position
+        jitterPos[id].x += (rawPos[id].x - jitterPos[id].x) * JITTER;
+        jitterPos[id].y += (rawPos[id].y - jitterPos[id].y) * JITTER;
 
-    // Weißen Kreis zeichnen, wenn Helligkeit < 20% (inkl. 0%)
-    if (light < 20) {
-      ctxFG.beginPath();
-      ctxFG.strokeStyle = "#fff";
-      ctxFG.lineWidth   = 3;
-      ctxFG.arc(x, y, r + 3, 0, Math.PI*2);
-      ctxFG.stroke();
-    }
-  }
+        const { x, y } = jitterPos[id];
+        const r        = (lastWidth[id]||((MIN_W+MAX_W)/2))/2 + pulse;
+        const col      = lastColor[id] || "#f00";
+        const light    = lastLight[id] || 50;
 
-  requestAnimationFrame(drawPulse);
-})();
+        // Punkt mit gewählter Farbe füllen
+        ctxFG.beginPath();
+        ctxFG.fillStyle = col;
+        ctxFG.arc(x, y, r, 0, 2*Math.PI);
+        ctxFG.fill();
 
+        // weißer Ring, falls Helligkeit < 20%
+        if (light < 20) {
+          ctxFG.beginPath();
+          ctxFG.strokeStyle = "#fff";
+          ctxFG.lineWidth   = 3;
+          ctxFG.arc(x, y, r+3, 0, 2*Math.PI);
+          ctxFG.stroke();
+        }
+      }
+
+      requestAnimationFrame(drawPulse);
+    })();
   </script>
 </body>
 </html>
