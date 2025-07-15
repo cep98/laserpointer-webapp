@@ -3,23 +3,25 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Admin Panel v3.8 (Jitter‑Glättung)</title>
+  <title>Admin Panel v3.8+</title>
   <style>
     body { margin:0; padding:20px; background:#111; color:#fff; font-family:sans-serif; }
     h1 { margin-top:0; }
     #status { margin:10px 0; font-weight:bold; }
     .setting { margin:15px 0; }
     label { display:inline-block; width:200px; vertical-align:middle; }
-    input[type="number"], input[type="range"] { vertical-align:middle; }
+    input { vertical-align:middle; width:100px; }
+    input[type=range] { width:200px; }
     #smoothVal { display:inline-block; width:40px; text-align:right; margin-left:8px; }
     #clear { margin-top:10px; padding:8px 16px; background:#c33; color:#fff; border:none; cursor:pointer; }
     table { width:100%; margin-top:20px; border-collapse:collapse; }
     th, td { padding:8px; border:1px solid #444; text-align:left; }
     th { background:#222; }
+    .killBtn { background:#900; color:#fff; border:none; padding:4px 8px; cursor:pointer; }
   </style>
 </head>
 <body>
-  <h1>Admin Panel v3.8</h1>
+  <h1>Admin Panel v3.8+</h1>
   <div id="status">
     Display: <span id="dispState">–</span>
   </div>
@@ -33,7 +35,15 @@
     <input id="maxV" type="number" value="20" min="0" max="180"/>
   </div>
   <div class="setting">
-    <label for="smooth">Jitter‑Glättung Punkt (% – 0 = aus, 100 = stark):</label>
+    <label for="minW">Min. Strichstärke (px):</label>
+    <input id="minW" type="number" value="5" min="1" max="100"/>
+  </div>
+  <div class="setting">
+    <label for="maxW">Max. Strichstärke (px):</label>
+    <input id="maxW" type="number" value="12" min="1" max="200"/>
+  </div>
+  <div class="setting">
+    <label for="smooth">Jitter‑Glättung (%):</label>
     <input id="smooth" type="range" min="0" max="100" value="20"/>
     <span id="smoothVal">20 %</span>
   </div>
@@ -42,53 +52,79 @@
 
   <h2>Verbundene Handys</h2>
   <table>
-    <thead><tr><th>Geräte-ID</th><th>IP-Adresse</th></tr></thead>
+    <thead>
+      <tr><th>Geräte-ID</th><th>IP-Adresse</th><th>Aktion</th></tr>
+    </thead>
     <tbody id="clientList"></tbody>
   </table>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
-    const socket = io();
-    socket.emit("identify", { role: "admin", deviceId: null });
+    const socket    = io();
+    const elMaxH    = document.getElementById("maxH");
+    const elMaxV    = document.getElementById("maxV");
+    const elMinW    = document.getElementById("minW");
+    const elMaxW    = document.getElementById("maxW");
+    const elSmooth  = document.getElementById("smooth");
+    const elSmoothVal = document.getElementById("smoothVal");
+    const btnClear  = document.getElementById("clear");
+    const tblBody   = document.getElementById("clientList");
+    const dispState = document.getElementById("dispState");
 
-    const elMaxH    = document.getElementById("maxH"),
-          elMaxV    = document.getElementById("maxV"),
-          elSmooth  = document.getElementById("smooth"),
-          elSmoothVal = document.getElementById("smoothVal"),
-          btnClear  = document.getElementById("clear"),
-          tblBody   = document.getElementById("clientList"),
-          dispState = document.getElementById("dispState");
+    // Wir identifizieren uns als Admin
+    socket.emit("identify", { role:"admin", deviceId:null });
 
     function sendSettings() {
-      const maxH   = parseFloat(elMaxH.value)   || 20,
-            maxV   = parseFloat(elMaxV.value)   || 20,
-            // invertierter Slider: 20% → smooth = 0.80
-            smooth = 1 - (parseFloat(elSmooth.value) / 100);
-      socket.emit("updateSettings", { maxH, maxV, smooth });
+      const cfg = {
+        maxH:   parseFloat(elMaxH.value)   || 20,
+        maxV:   parseFloat(elMaxV.value)   || 20,
+        minW:   parseFloat(elMinW.value)   || 5,
+        maxW:   parseFloat(elMaxW.value)   || 12,
+        smooth: 1 - (parseFloat(elSmooth.value)/100)  // invertiert
+      };
+      socket.emit("updateSettings", cfg);
     }
 
-    elMaxH.addEventListener("change", sendSettings);
-    elMaxV.addEventListener("change", sendSettings);
-    elSmooth.addEventListener("input", () => {
+    [elMaxH,elMaxV,elMinW,elMaxW].forEach(el =>
+      el.addEventListener("change", sendSettings)
+    );
+    elSmooth.addEventListener("input", ()=>{
       elSmoothVal.textContent = elSmooth.value + " %";
       sendSettings();
     });
 
-    btnClear.addEventListener("click", () => socket.emit("clear"));
+    btnClear.addEventListener("click", ()=> socket.emit("clear"));
 
-    // Initial senden
+    // Erstmal senden
     sendSettings();
 
+    // Aktuelle Client-Liste anzeigen
     socket.on("client-list", list => {
-      const hasDisp = list.some(c => c.type === "display");
+      // Display-Status
+      const hasDisp = list.some(c=>c.type==="display");
       dispState.textContent = hasDisp ? "verbunden ✅" : "nicht verbunden ❌";
 
-      const ctrls = list.filter(c => c.type === "control" && c.active);
+      // Control-Clients
+      const ctrls = list.filter(c=>c.type==="control" && c.active);
       tblBody.innerHTML = "";
-      ctrls.forEach(({ deviceId, ip }) => {
+      ctrls.forEach(c=>{
         const tr = document.createElement("tr");
-        tr.innerHTML = `<td>${deviceId || "–"}</td><td>${ip}</td>`;
+        tr.innerHTML = `
+          <td>${c.deviceId||"–"}</td>
+          <td>${c.ip}</td>
+          <td>
+            <button class="killBtn" data-id="${c.deviceId}">
+              Kill
+            </button>
+          </td>`;
         tblBody.appendChild(tr);
+      });
+      // Kill-Handler einhängen
+      tblBody.querySelectorAll(".killBtn").forEach(btn=>{
+        btn.onclick = ()=> {
+          const id = btn.getAttribute("data-id");
+          socket.emit("kick", { deviceId:id });
+        };
       });
     });
   </script>
