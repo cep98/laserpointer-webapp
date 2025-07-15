@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Laserpointer Display v3.16 (static+overlay)</title>
+  <title>Laserpointer Display v3.16 (static+overlay fix)</title>
   <style>
     body { margin:0; background:black; overflow:hidden }
     #container {
@@ -11,10 +11,10 @@
       width:1024px; height:1024px;
       margin:auto;
     }
-    canvas {
-      position:absolute; top:0; left:0;
-      background:black;
-    }
+    /* nur das Static-Canvas bekommt Schwarz, das Overlay bleibt transparent */
+    #static  { position:absolute; top:0; left:0; background:black; }
+    #overlay { position:absolute; top:0; left:0; /* transparent! */ }
+    canvas { display:block; }
     #version {
       position:absolute; top:10px; left:10px;
       color:white; font-family:sans-serif;
@@ -23,7 +23,7 @@
   </style>
 </head>
 <body>
-  <div id="version">v3.16 (static+overlay)</div>
+  <div id="version">v3.16 (static+overlay fix)</div>
   <div id="container">
     <canvas id="static"  width="1024" height="1024"></canvas>
     <canvas id="overlay" width="1024" height="1024"></canvas>
@@ -33,7 +33,6 @@
     const sock = io();
     sock.emit("identify",{ role:"display", deviceId:null });
 
-    // zwei Kontexte: one for permanent strokes, one for dynamic point
     const staticC  = document.getElementById("static"),
           overlayC = document.getElementById("overlay"),
           sctx      = staticC.getContext("2d"),
@@ -44,15 +43,14 @@
     // Admin‐Settings
     let MAX_H=20, MAX_V=20, MIN_W=5, MAX_W=12, SMOOTH=0.15;
     sock.on("updateSettings", cfg=>{
-      if(typeof cfg.maxH==="number")  MAX_H = cfg.maxH;
-      if(typeof cfg.maxV==="number")  MAX_V = cfg.maxV;
-      if(typeof cfg.minW==="number")  MIN_W = cfg.minW;
-      if(typeof cfg.maxW==="number")  MAX_W = cfg.maxW;
-      if(typeof cfg.smooth==="number")SMOOTH= cfg.smooth;
+      if(typeof cfg.maxH==="number") MAX_H=cfg.maxH;
+      if(typeof cfg.maxV==="number") MAX_V=cfg.maxV;
+      if(typeof cfg.minW==="number") MIN_W=cfg.minW;
+      if(typeof cfg.maxW==="number") MAX_W=cfg.maxW;
+      if(typeof cfg.smooth==="number") SMOOTH=cfg.smooth;
     });
 
     const SPEED_THRESH = 2000;
-    // State pro Gerät
     const alpha0     = {}, beta0     = {},
           rawPos     = {}, lastTime  = {},
           lastWidth  = {}, wasDrawing={},
@@ -69,7 +67,6 @@
       return m?+m[1]:50;
     }
 
-    // Beim Clear: alles resetten
     sock.on("clear", ()=>{
       sctx.clearRect(0,0,staticC.width,staticC.height);
       octx.clearRect(0,0,overlayC.width,overlayC.height);
@@ -87,50 +84,47 @@
       }
     });
 
-    // Beim Motion‐Event direkt in den static‐Canvas zeichnen
     sock.on("motion", ({alpha,beta,color,isDrawing,deviceId})=>{
       if(!deviceId||typeof alpha!=="number")return;
-      const now = performance.now();
-      lastColor[deviceId] = color;
-      lastLight[deviceId] = parseLight(color);
+      const now=performance.now();
+      lastColor[deviceId]=color;
+      lastLight[deviceId]=parseLight(color);
 
       // Erst‐Init
       if(!(deviceId in rawPos)){
-        rawPos[deviceId]   = {x:CX,y:CY};
-        lastTime[deviceId] = now;
-        lastWidth[deviceId]= (MIN_W+MAX_W)/2;
-        wasDrawing[deviceId]= false;
-        prev1[deviceId]    = null;
-        prev2[deviceId]    = null;
+        rawPos[deviceId]={x:CX,y:CY};
+        lastTime[deviceId]=now;
+        lastWidth[deviceId]=(MIN_W+MAX_W)/2;
+        wasDrawing[deviceId]=false;
+        prev1[deviceId]=null;
+        prev2[deviceId]=null;
       }
 
-      // Kalibrierung beim ersten Zeichnen
+      // Kalibrierung
       if(isDrawing && alpha0[deviceId]==null){
         alpha0[deviceId]=alpha;
         beta0 [deviceId]=beta;
       }
       if(alpha0[deviceId]==null) return;
 
-      // Winkel-Delta + Wrap
-      let dA = alpha - alpha0[deviceId];
-      if(dA>180) dA-=360; if(dA<-180) dA+=360;
-      let dB = beta - beta0[deviceId];
-      dA = Math.max(-MAX_H,Math.min(MAX_H,dA));
-      dB = Math.max(-MAX_V,Math.min(MAX_V,dB));
+      let dA=alpha-alpha0[deviceId];
+      if(dA>180)dA-=360; if(dA<-180)dA+=360;
+      let dB=beta-beta0[deviceId];
+      dA=Math.max(-MAX_H,Math.min(MAX_H,dA));
+      dB=Math.max(-MAX_V,Math.min(MAX_V,dB));
 
-      // Map auf Canvas
-      const rawX = CX - (dA/MAX_H)*CX,
-            rawY = CY - (dB/MAX_V)*CY;
+      const x= CX-(dA/MAX_H)*CX,
+            y= CY-(dB/MAX_V)*CY;
 
       // Geschwindigkeit
-      const prev = rawPos[deviceId],
-            dt   = (now-lastTime[deviceId])/1000,
-            dist = Math.hypot(rawX-prev.x, rawY-prev.y),
-            speed= dt>0 ? dist/dt : 0;
-      lastTime[deviceId] = now;
-      rawPos[deviceId]   = {x:rawX,y:rawY};
+      const pr=rawPos[deviceId],
+            dt=(now-lastTime[deviceId])/1000,
+            dist=Math.hypot(x-pr.x,y-pr.y),
+            speed=dt>0?dist/dt:0;
+      lastTime[deviceId]=now;
+      rawPos[deviceId]={x,y};
 
-      // Stroke‐Separator
+      // Separator
       if(isDrawing && !wasDrawing[deviceId]){
         prev1[deviceId]=null;
         prev2[deviceId]=null;
@@ -138,54 +132,46 @@
       wasDrawing[deviceId]=isDrawing;
 
       if(isDrawing){
-        // Breite glätten
-        const norm = Math.min(1, speed/SPEED_THRESH),
-              rawW = MAX_W - (MAX_W-MIN_W)*norm,
-              prevW= lastWidth[deviceId],
-              w    = prevW + (rawW - prevW)*SMOOTH;
-        lastWidth[deviceId] = w;
+        // Breite
+        const norm=Math.min(1,speed/SPEED_THRESH),
+              rawW=MAX_W-(MAX_W-MIN_W)*norm,
+              pW=lastWidth[deviceId],
+              w=pW+(rawW-pW)*SMOOTH;
+        lastWidth[deviceId]=w;
 
-        // Beziehe p0/p1/p2
-        prev2[deviceId] = prev1[deviceId];
-        prev1[deviceId] = {x:rawX,y:rawY,w,color};
+        // Prev shift
+        prev2[deviceId]=prev1[deviceId];
+        prev1[deviceId]={x,y,w,color};
 
-        // ab 3 Punkten quadratisch zeichnen
-        const p0 = prev2[deviceId],
-              p1 = prev1[deviceId];
+        // Zeichne sofort in static bei 2 Punkten
+        const p0=prev2[deviceId], p1=prev1[deviceId];
         if(p0){
-          // midpoint
-          const mx = (p0.x + p1.x)/2,
-                my = (p0.y + p1.y)/2;
+          const mx=(p0.x+p1.x)/2, my=(p0.y+p1.y)/2;
           sctx.beginPath();
-          sctx.strokeStyle = p0.color;
-          sctx.lineWidth   = p0.w;
-          sctx.moveTo(p0.x, p0.y);
-          sctx.quadraticCurveTo(
-            p0.x, p0.y,
-            mx,  my
-          );
+          sctx.strokeStyle=p0.color;
+          sctx.lineWidth  =p0.w;
+          sctx.moveTo(p0.x,p0.y);
+          sctx.quadraticCurveTo(p0.x,p0.y,mx,my);
           sctx.stroke();
         }
       }
     });
 
-    // Render‐Loop: nur Puls‐Punkt auf overlay
+    // Render‐Loop: nur Puls
     let pulse=0, grow=true;
-    ;(function loop(){
-      octx.clearRect(0,0,overlayC.width, overlayC.height);
-
+    (function loop(){
+      octx.clearRect(0,0,overlayC.width,overlayC.height);
       pulse += grow?0.2:-0.2;
       if(pulse>2) grow=false;
       if(pulse<0) grow=true;
-
       for(let id in rawPos){
-        const {x,y} = rawPos[id];
-        const r     = lastWidth[id]/2 + pulse;
+        const {x,y}=rawPos[id],
+              r=lastWidth[id]/2+pulse,
+              col=lastColor[id]||"#f00";
         octx.beginPath();
-        octx.fillStyle = lastColor[id] || "#f00";
+        octx.fillStyle=col;
         octx.arc(x,y,r,0,2*Math.PI);
         octx.fill();
-
         if((lastLight[id]||50)<20){
           octx.strokeStyle="#fff"; octx.lineWidth=3;
           octx.beginPath();
@@ -193,7 +179,6 @@
           octx.stroke();
         }
       }
-
       requestAnimationFrame(loop);
     })();
   </script>
