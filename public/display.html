@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Laserpointer Display v3.16 (static+overlay fix)</title>
+  <title>Laserpointer Display v3.17 (gap-free bezier)</title>
   <style>
     body { margin:0; background:black; overflow:hidden }
     #container {
@@ -13,7 +13,7 @@
     }
     /* nur das Static-Canvas bekommt Schwarz, das Overlay bleibt transparent */
     #static  { position:absolute; top:0; left:0; background:black; }
-    #overlay { position:absolute; top:0; left:0; /* transparent! */ }
+    #overlay { position:absolute; top:0; left:0; /* transparent */ }
     canvas { display:block; }
     #version {
       position:absolute; top:10px; left:10px;
@@ -23,11 +23,12 @@
   </style>
 </head>
 <body>
-  <div id="version">v3.16 (static+overlay fix)</div>
+  <div id="version">v3.17 (gap-free bezier)</div>
   <div id="container">
     <canvas id="static"  width="1024" height="1024"></canvas>
     <canvas id="overlay" width="1024" height="1024"></canvas>
   </div>
+
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const sock = io();
@@ -40,37 +41,38 @@
           CX        = staticC.width/2,
           CY        = staticC.height/2;
 
-    // Admin‐Settings
-    let MAX_H=20, MAX_V=20, MIN_W=5, MAX_W=12, SMOOTH=0.15;
-    sock.on("updateSettings", cfg=>{
-      if(typeof cfg.maxH==="number") MAX_H=cfg.maxH;
-      if(typeof cfg.maxV==="number") MAX_V=cfg.maxV;
-      if(typeof cfg.minW==="number") MIN_W=cfg.minW;
-      if(typeof cfg.maxW==="number") MAX_W=cfg.maxW;
-      if(typeof cfg.smooth==="number") SMOOTH=cfg.smooth;
+    // Admin‐Settings (werden per Admin verändert)
+    let MAX_H = 20, MAX_V = 20, MIN_W = 5, MAX_W = 12, SMOOTH = 0.15;
+    sock.on("updateSettings", cfg => {
+      if (typeof cfg.maxH   === "number") MAX_H  = cfg.maxH;
+      if (typeof cfg.maxV   === "number") MAX_V  = cfg.maxV;
+      if (typeof cfg.minW   === "number") MIN_W  = cfg.minW;
+      if (typeof cfg.maxW   === "number") MAX_W  = cfg.maxW;
+      if (typeof cfg.smooth === "number") SMOOTH = cfg.smooth;
     });
 
-    const SPEED_THRESH = 2000;
-    const alpha0     = {}, beta0     = {},
-          rawPos     = {}, lastTime  = {},
-          lastWidth  = {}, wasDrawing={},
-          prev1      = {}, prev2      = {},
-          lastColor  = {}, lastLight  = {};
+    const SPEED_THRESH = 2000;  // px/s ⇒ ab hier min-Width
 
-    sctx.lineCap  = "round"; 
-    sctx.lineJoin = "round";
-    octx.lineCap  = "round"; 
-    octx.lineJoin = "round";
+    // State pro Gerät
+    const alpha0    = {}, beta0     = {},
+          rawPos    = {}, lastTime  = {},
+          lastWidth = {}, wasDrawing={},
+          prev1     = {}, prev2     = {},
+          lastColor = {}, lastLight = {};
 
-    function parseLight(hsl){
-      const m=hsl.match(/,\s*(\d+)%\)/);
-      return m?+m[1]:50;
+    sctx.lineCap  = "round"; sctx.lineJoin = "round";
+    octx.lineCap  = "round"; octx.lineJoin = "round";
+
+    function parseLight(hsl) {
+      const m = hsl.match(/,\s*(\d+)%\)/);
+      return m ? +m[1] : 50;
     }
 
-    sock.on("clear", ()=>{
+    sock.on("clear", () => {
+      // beide Canvas löschen und State resetten
       sctx.clearRect(0,0,staticC.width,staticC.height);
       octx.clearRect(0,0,overlayC.width,overlayC.height);
-      for(let id in rawPos){
+      for (let id in rawPos) {
         delete rawPos[id];
         delete lastTime[id];
         delete lastWidth[id];
@@ -84,101 +86,117 @@
       }
     });
 
-    sock.on("motion", ({alpha,beta,color,isDrawing,deviceId})=>{
-      if(!deviceId||typeof alpha!=="number")return;
-      const now=performance.now();
-      lastColor[deviceId]=color;
-      lastLight[deviceId]=parseLight(color);
+    sock.on("motion", ({alpha,beta,color,isDrawing,deviceId}) => {
+      if (!deviceId || typeof alpha !== "number") return;
+      const now = performance.now();
 
-      // Erst‐Init
-      if(!(deviceId in rawPos)){
-        rawPos[deviceId]={x:CX,y:CY};
-        lastTime[deviceId]=now;
-        lastWidth[deviceId]=(MIN_W+MAX_W)/2;
-        wasDrawing[deviceId]=false;
-        prev1[deviceId]=null;
-        prev2[deviceId]=null;
+      // zum Puls
+      lastColor[deviceId] = color;
+      lastLight[deviceId] = parseLight(color);
+
+      // erstes Initialisieren
+      if (!(deviceId in rawPos)) {
+        rawPos[deviceId]   = { x: CX, y: CY };
+        lastTime[deviceId] = now;
+        // Start-Breite in der Mitte
+        lastWidth[deviceId] = (MIN_W + MAX_W)/2;
+        wasDrawing[deviceId] = false;
+        prev1[deviceId] = prev2[deviceId] = null;
+        alpha0[deviceId] = beta0[deviceId] = null;
       }
 
-      // Kalibrierung
-      if(isDrawing && alpha0[deviceId]==null){
-        alpha0[deviceId]=alpha;
-        beta0 [deviceId]=beta;
+      // Kalibrierpunkt beim **ersten** Zeichnen setzen
+      if (isDrawing && alpha0[deviceId]===null) {
+        alpha0[deviceId] = alpha;
+        beta0 [deviceId] = beta;
       }
-      if(alpha0[deviceId]==null) return;
+      if (alpha0[deviceId]===null) return; // bis zur Kalibrierung nichts machen
 
-      let dA=alpha-alpha0[deviceId];
-      if(dA>180)dA-=360; if(dA<-180)dA+=360;
-      let dB=beta-beta0[deviceId];
-      dA=Math.max(-MAX_H,Math.min(MAX_H,dA));
-      dB=Math.max(-MAX_V,Math.min(MAX_V,dB));
+      // Winkel‐Delta + Wrap
+      let dA = alpha - alpha0[deviceId];
+      if (dA > 180)  dA -= 360;
+      if (dA < -180) dA += 360;
+      let dB = beta - beta0[deviceId];
 
-      const x= CX-(dA/MAX_H)*CX,
-            y= CY-(dB/MAX_V)*CY;
+      // clamp
+      dA = Math.max(-MAX_H, Math.min(MAX_H, dA));
+      dB = Math.max(-MAX_V, Math.min(MAX_V, dB));
 
-      // Geschwindigkeit
-      const pr=rawPos[deviceId],
-            dt=(now-lastTime[deviceId])/1000,
-            dist=Math.hypot(x-pr.x,y-pr.y),
-            speed=dt>0?dist/dt:0;
-      lastTime[deviceId]=now;
-      rawPos[deviceId]={x,y};
+      // auf Canvas-Maße mappen
+      const x = CX - (dA/MAX_H)*CX,
+            y = CY - (dB/MAX_V)*CY;
 
-      // Separator
-      if(isDrawing && !wasDrawing[deviceId]){
-        prev1[deviceId]=null;
-        prev2[deviceId]=null;
+      // Geschwindigkeit berechnen
+      const prevRaw = rawPos[deviceId],
+            dt      = (now - lastTime[deviceId])/1000,
+            dist    = Math.hypot(x-prevRaw.x, y-prevRaw.y),
+            speed   = dt>0 ? dist/dt : 0;
+      lastTime[deviceId] = now;
+      rawPos[deviceId] = { x, y };
+
+      // Trennlinie, wenn man neu ansetzt
+      if (isDrawing && !wasDrawing[deviceId]) {
+        prev1[deviceId] = prev2[deviceId] = null;
       }
-      wasDrawing[deviceId]=isDrawing;
+      wasDrawing[deviceId] = isDrawing;
 
-      if(isDrawing){
-        // Breite
-        const norm=Math.min(1,speed/SPEED_THRESH),
-              rawW=MAX_W-(MAX_W-MIN_W)*norm,
-              pW=lastWidth[deviceId],
-              w=pW+(rawW-pW)*SMOOTH;
-        lastWidth[deviceId]=w;
+      if (isDrawing) {
+        // Normierte Speed → Breite [MIN_W..MAX_W]
+        const norm   = Math.min(1, speed/SPEED_THRESH),
+              rawW   = MAX_W - (MAX_W - MIN_W)*norm,
+              wPrev  = lastWidth[deviceId],
+              wSmooth= wPrev + (rawW - wPrev)*SMOOTH;
+        lastWidth[deviceId] = wSmooth;
 
-        // Prev shift
-        prev2[deviceId]=prev1[deviceId];
-        prev1[deviceId]={x,y,w,color};
+        // History schieben
+        prev2[deviceId] = prev1[deviceId];
+        prev1[deviceId] = { x, y, w:wSmooth, color };
 
-        // Zeichne sofort in static bei 2 Punkten
-        const p0=prev2[deviceId], p1=prev1[deviceId];
-        if(p0){
-          const mx=(p0.x+p1.x)/2, my=(p0.y+p1.y)/2;
+        // Jetzt **voll** von prev2 → prev1 → aktuellen Punkt zeichnen
+        if (prev2[deviceId]) {
+          const p0 = prev2[deviceId],
+                p1 = prev1[deviceId],
+                p2 = { x, y };
+
           sctx.beginPath();
-          sctx.strokeStyle=p0.color;
-          sctx.lineWidth  =p0.w;
-          sctx.moveTo(p0.x,p0.y);
-          sctx.quadraticCurveTo(p0.x,p0.y,mx,my);
+          sctx.strokeStyle = p1.color;
+          sctx.lineWidth   = p1.w;
+          sctx.moveTo(p0.x, p0.y);
+          sctx.quadraticCurveTo(p1.x, p1.y, p2.x, p2.y);
           sctx.stroke();
         }
       }
     });
 
-    // Render‐Loop: nur Puls
-    let pulse=0, grow=true;
+    // Render‐Loop nur für Puls-Punkt
+    let pulse = 0, growing = true;
     (function loop(){
       octx.clearRect(0,0,overlayC.width,overlayC.height);
-      pulse += grow?0.2:-0.2;
-      if(pulse>2) grow=false;
-      if(pulse<0) grow=true;
-      for(let id in rawPos){
-        const {x,y}=rawPos[id],
-              r=lastWidth[id]/2+pulse,
-              col=lastColor[id]||"#f00";
+      pulse += growing ? 0.2 : -0.2;
+      if (pulse > 2)  growing = false;
+      if (pulse < 0)  growing = true;
+
+      for (let id in rawPos) {
+        const { x, y } = rawPos[id],
+              col     = lastColor[id] || "#f00",
+              r       = lastWidth[id]/2 + pulse;
+
+        // Punkt
         octx.beginPath();
-        octx.fillStyle=col;
-        octx.arc(x,y,r,0,2*Math.PI);
+        octx.fillStyle = col;
+        octx.arc(x, y, r, 0, 2*Math.PI);
         octx.fill();
-        if((lastLight[id]||50)<20){
-          octx.strokeStyle="#fff"; octx.lineWidth=3;
+
+        // Weißer Ring bei Low-Light
+        if ((lastLight[id]||50) < 20) {
+          octx.strokeStyle = "#fff";
+          octx.lineWidth   = 3;
           octx.beginPath();
-          octx.arc(x,y,r+3,0,2*Math.PI);
+          octx.arc(x, y, r+3, 0, 2*Math.PI);
           octx.stroke();
         }
       }
+
       requestAnimationFrame(loop);
     })();
   </script>
