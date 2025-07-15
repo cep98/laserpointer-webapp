@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Laserpointer Game</title>
   <style>
-    body { margin:0; background:black; overflow:hidden; }
-    canvas { display:block; margin:auto; background:#111; }
+    body { margin:0; background:black; overflow:hidden }
+    canvas { display:block; margin:auto; background:#111 }
     #version {
       position:absolute; top:10px; left:10px;
       color:#fff; font-family:sans-serif; font-size:14px; opacity:0.6;
@@ -19,122 +19,102 @@
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
-  const socket = io();
+    const socket = io();
+    // <- DAS HIER
+    socket.emit("identify", { role: "display", deviceId: null });
 
-  // Ball‑Physik
-  const canvas = document.getElementById("canvas"),
-        ctx    = canvas.getContext("2d"),
-        W      = canvas.width,
-        H      = canvas.height;
+    // Ball‑Physik
+    const canvas = document.getElementById("canvas"),
+          ctx    = canvas.getContext("2d"),
+          W      = canvas.width,
+          H      = canvas.height;
 
-  let ball = {
-    x: W/2, y: H/2,
-    vx: 0, vy: 0,
-    r: 20
-  };
+    let ball = { x: W/2, y: H/2, vx: 0, vy: 0, r: 20 };
 
-  const FRICTION    = 0.995,   // rollwiderstand
-        BOUNCE      = 0.8,     // Rückprall-Dämpfung
-        HIT_STRENGTH= 0.3,     // Impuls bei Treffer
-        PTR_R       = 8,       // Pointer‑Radius
-        PTR_TTL     = 500;     // Pointer lebt 0.5 s nach letztem Event
+    const FRICTION     = 0.995,
+          BOUNCE       = 0.8,
+          HIT_STRENGTH = 0.3,
+          PTR_R        = 8,
+          PTR_TTL      = 500;
 
-  // Eingehende Pointer‑Daten (aus control → "draw")
-  const pointers = {}; // deviceId → { x,y, t }
+    const pointers = {}; // deviceId → {x,y,t}
 
-  socket.on("draw", ({ x, y, deviceId }) => {
-    pointers[deviceId] = {
-      x: x * W,
-      y: y * H,
-      t: performance.now()
-    };
-  });
+    socket.on("draw", ({ x, y, deviceId }) => {
+      pointers[deviceId] = { x: x*W, y: y*H, t: performance.now() };
+    });
 
-  // Alte Pointer nach TTL ausmisten
-  function cleanupPointers(now) {
-    for (let id in pointers) {
-      if (now - pointers[id].t > PTR_TTL) {
-        delete pointers[id];
-      }
-    }
-  }
-
-  // Physik‑Update
-  function update(dt) {
-    const now = performance.now();
-    cleanupPointers(now);
-
-    // Kollision Pointer → Ball: wenn Pointer in Nähe und letztes Event frisch
-    for (let id in pointers) {
-      const p = pointers[id];
-      const dx = ball.x - p.x,
-            dy = ball.y - p.y,
-            dist = Math.hypot(dx, dy);
-      if (dist < ball.r + PTR_R) {
-        // Stoßrichtung normalisiert
-        const nx = dx / dist,
-              ny = dy / dist;
-        ball.vx += nx * HIT_STRENGTH;
-        ball.vy += ny * HIT_STRENGTH;
+    function cleanupPointers(now) {
+      for (let id in pointers) {
+        if (now - pointers[id].t > PTR_TTL) delete pointers[id];
       }
     }
 
-    // Ball bewegen
-    ball.x += ball.vx * dt;
-    ball.y += ball.vy * dt;
+    function update(dt) {
+      const now = performance.now();
+      cleanupPointers(now);
 
-    // Wände: abprallen
-    if (ball.x - ball.r < 0) {
-      ball.x = ball.r;
-      ball.vx = -ball.vx * BOUNCE;
+      // Interaction Pointer→Ball
+      for (let id in pointers) {
+        const p = pointers[id];
+        const dx = ball.x - p.x,
+              dy = ball.y - p.y,
+              dist = Math.hypot(dx, dy);
+        if (dist < ball.r + PTR_R) {
+          const nx = dx/dist, ny = dy/dist;
+          ball.vx += nx * HIT_STRENGTH;
+          ball.vy += ny * HIT_STRENGTH;
+        }
+      }
+
+      // Ball‐Bewegung
+      ball.x += ball.vx * dt;
+      ball.y += ball.vy * dt;
+
+      // Ränder
+      if (ball.x - ball.r < 0) {
+        ball.x = ball.r; ball.vx = -ball.vx * BOUNCE;
+      }
+      if (ball.x + ball.r > W) {
+        ball.x = W - ball.r; ball.vx = -ball.vx * BOUNCE;
+      }
+      if (ball.y - ball.r < 0) {
+        ball.y = ball.r; ball.vy = -ball.vy * BOUNCE;
+      }
+      if (ball.y + ball.r > H) {
+        ball.y = H - ball.r; ball.vy = -ball.vy * BOUNCE;
+      }
+
+      ball.vx *= FRICTION;
+      ball.vy *= FRICTION;
     }
-    if (ball.x + ball.r > W) {
-      ball.x = W - ball.r;
-      ball.vx = -ball.vx * BOUNCE;
-    }
-    if (ball.y - ball.r < 0) {
-      ball.y = ball.r;
-      ball.vy = -ball.vy * BOUNCE;
-    }
-    if (ball.y + ball.r > H) {
-      ball.y = H - ball.r;
-      ball.vy = -ball.vy * BOUNCE;
-    }
 
-    // Friction
-    ball.vx *= FRICTION;
-    ball.vy *= FRICTION;
-  }
+    function draw() {
+      ctx.clearRect(0,0,W,H);
 
-  // Zeichnen
-  function draw() {
-    ctx.clearRect(0, 0, W, H);
-
-    // Ball
-    ctx.beginPath();
-    ctx.fillStyle = "#f90";
-    ctx.arc(ball.x, ball.y, ball.r, 0, 2*Math.PI);
-    ctx.fill();
-
-    // Pointer
-    for (let id in pointers) {
-      const p = pointers[id];
+      // Ball
       ctx.beginPath();
-      ctx.fillStyle = "#0cf";
-      ctx.arc(p.x, p.y, PTR_R, 0, 2*Math.PI);
+      ctx.fillStyle = "#f90";
+      ctx.arc(ball.x, ball.y, ball.r, 0, 2*Math.PI);
       ctx.fill();
-    }
-  }
 
-  // Main‐Loop
-  let last = performance.now();
-  (function loop(now) {
-    const dt = (now - last) / 16.67; // Normierung auf ~60 fps
-    last = now;
-    update(dt);
-    draw();
-    requestAnimationFrame(loop);
-  })(last);
+      // Pointer‑Cursors
+      for (let id in pointers) {
+        const p = pointers[id];
+        ctx.beginPath();
+        ctx.fillStyle = "#0cf";
+        ctx.arc(p.x, p.y, PTR_R, 0, 2*Math.PI);
+        ctx.fill();
+      }
+    }
+
+    let last = performance.now();
+    (function loop(now){
+      const dt = (now - last)/16.67;
+      last = now;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    })(last);
 
   </script>
 </body>
