@@ -1,96 +1,79 @@
+// server.js
 const express = require("express");
 const app     = express();
 const http    = require("http").createServer(app);
 const io      = require("socket.io")(http);
 
-// Statische Dateien ausliefern
+// Statische Dateien (control.html, display.html, game.html, admin.html etc.)
 app.use(express.static("public"));
 
-// Inaktivitäts-Timeout (5 Sekunden)
-const INACTIVITY_TIMEOUT = 5 * 1000;
-
-// clients: socketId → { ip, type, deviceId, lastMotion }
+// Aktive Clients: socket.id → { role, deviceId, ip, active }
 const clients = {};
 
-// Funktion zum Senden der aktuellen Client-Liste an alle Admins
-function broadcastClients() {
-  const now = Date.now();
-  const list = Object.entries(clients).map(([socketId, info]) => ({
-    socketId,
-    ip:       info.ip,
-    deviceId: info.deviceId,
-    type:     info.type,
-    // active nur für Control-Clients, die innerhalb des Timeouts zuletzt motion gesendet haben
-    active:   info.type === "control" && (now - info.lastMotion) < INACTIVITY_TIMEOUT
+function broadcastClientList() {
+  const list = Object.values(clients).map(c => ({
+    type:       c.role,      // "control" oder "display" oder "admin"
+    deviceId:   c.deviceId,
+    ip:         c.ip,
+    active:     c.active
   }));
-  io.emit("client-list", list);
+  // An alle Admin‑Sockets schicken
+  for (let sid in clients) {
+    if (clients[sid].role === "admin") {
+      io.to(sid).emit("client-list", list);
+    }
+  }
 }
 
 io.on("connection", socket => {
-  // Client initial registrieren
+  // merk' Dir IP
   const ip = socket.handshake.address;
+
+  // Default‑Eintrag
   clients[socket.id] = {
+    role:     null,
+    deviceId: null,
     ip,
-    type:       null,
-    deviceId:   null,
-    lastMotion: Date.now()
+    active:   true
   };
 
-  // Rolle und Geräte-ID setzen
+  // Ein Client identifiziert sich
   socket.on("identify", ({ role, deviceId }) => {
-    if (["control","display","admin"].includes(role)) {
-      clients[socket.id].type     = role;
-      clients[socket.id].deviceId = deviceId || null;
-      broadcastClients();
-    }
+    clients[socket.id].role     = role;       // "control", "display" (oder "game"), "admin"
+    clients[socket.id].deviceId = deviceId;   // null oder String
+    broadcastClientList();
   });
 
-  // Motion-Event: Zeitstempel aktualisieren und mitsenden
-  socket.on("motion", data => {
-    if (clients[socket.id]) {
-      clients[socket.id].lastMotion = Date.now();
-      const deviceId = clients[socket.id].deviceId;
-      io.emit("motion", { ...data, deviceId });
-    }
+  // Ein Control‑Client zeichnet
+  socket.on("draw", data => {
+    // data: { x, y, color?, isStart?, deviceId? }
+    // broadcast an alle Displays und Games
+    socket.broadcast.emit("draw", data);
   });
 
-  // Admin-Einstellungen weiterleiten
-  socket.on("updateSettings", settings => {
-    io.emit("updateSettings", settings);
-  });
-
-  // Canvas löschen
+  // Admin löscht Canvas
   socket.on("clear", () => {
     io.emit("clear");
   });
 
-  // Trennung: Client entfernen
-  socket.on("disconnect", () => {
-    delete clients[socket.id];
-    broadcastClients();
-  });
-});
-
-// Periodisch jede Sekunde die Client-Liste senden
-setInterval(broadcastClients, 1000);
-
-const PORT = process.env.PORT || 3000;
-http.listen(PORT, () => {
-  console.log(`Server läuft auf Port ${PORT}`);
-});
-io.on("connection", socket => {
-  // bestehende Handler…
-
-  // Ein Control‐Client meldet Kick an
+  // Admin kickt ein Control‑Gerät
   socket.on("kick", ({ deviceId }) => {
-    // finde das Socket-Objekt mit dieser deviceId
-    for (let [id, s] of io.of("/").sockets) {
-      if (s.deviceId === deviceId) {
-        s.disconnect(true);
+    // Finde den Socket mit dieser deviceId
+    for (let sid in clients) {
+      if (clients[sid].deviceId === deviceId && clients[sid].role === "control") {
+        io.sockets.sockets.get(sid)?.disconnect(true);
         break;
       }
     }
-    // und aktualisiere die Client-Liste
+    broadcastClientList();
+  });
+
+  socket.on("disconnect", () => {
+    delete clients[socket.id];
     broadcastClientList();
   });
 });
+
+// 3000 oder PORT‐Env
+const PORT = process.env.PORT || 3000;
+http.listen(PORT, () => console.log(`Server läuft auf Port ${PORT}`));
