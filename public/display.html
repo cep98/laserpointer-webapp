@@ -3,10 +3,11 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Laserpointer Display v3.19 (static + CR smoothing)</title>
+  <title>Laserpointer Display v3.19 (static + CR smoothing + Pulse)</title>
   <style>
     body { margin:0; background:black; overflow:hidden }
-    canvas { display:block; margin:auto; background:black }
+    #container { position:relative; width:1024px; height:1024px; margin:auto; }
+    canvas { position:absolute; top:0; left:0; background:black; }
     #version {
       position:absolute; top:10px; left:10px;
       color:white; font-family:sans-serif;
@@ -15,21 +16,27 @@
   </style>
 </head>
 <body>
-  <div id="version">v3.19 (static + CR smoothing)</div>
-  <canvas id="canvas" width="1024" height="1024"></canvas>
+  <div id="version">v3.19 (static + CR smoothing + Pulse)</div>
+  <div id="container">
+    <!-- Hintergrund: statische Striche -->
+    <canvas id="bgCanvas" width="1024" height="1024"></canvas>
+    <!-- Vordergrund: pulsierender Punkt -->
+    <canvas id="fgCanvas" width="1024" height="1024"></canvas>
+  </div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
     socket.emit("identify", { role:"display", deviceId:null });
 
-    const c    = document.getElementById("canvas"),
-          ctx  = c.getContext("2d"),
-          CX   = c.width/2,
-          CY   = c.height/2;
+    const bg = document.getElementById("bgCanvas"),
+          fg = document.getElementById("fgCanvas"),
+          ctxBG = bg.getContext("2d"),
+          ctxFG = fg.getContext("2d"),
+          CX = bg.width/2, CY = bg.height/2;
 
-    // live-config von Admin
-    let MAX_H = 20, MAX_V = 20, MIN_W = 5, MAX_W = 12, SMOOTH = 0.15;
+    // Admin‐Settings
+    let MAX_H=20, MAX_V=20, MIN_W=5, MAX_W=12, SMOOTH=0.15;
     socket.on("updateSettings", cfg => {
       if (typeof cfg.maxH   === "number") MAX_H  = cfg.maxH;
       if (typeof cfg.maxV   === "number") MAX_V  = cfg.maxV;
@@ -38,27 +45,27 @@
       if (typeof cfg.smooth === "number") SMOOTH = cfg.smooth;
     });
 
-    const SPEED_THRESH = 2000;  // px/s
+    const SPEED_THRESH = 2000; // px/s
 
-    // State pro Device
+    // State pro Gerät
     const alpha0    = {},  // Kalibrier-Nullpunkt α
           beta0     = {},  // Kalibrier-Nullpunkt β
           rawPos    = {},  // letzter roher Punkt
           lastTime  = {},  // timestamp
-          lastWidth = {},  // letzte Breite
+          lastWidth = {},  // letzte berechnete Breite
           wasDraw   = {},  // ob Button gedrückt
-          strokes   = {},  // device→Array von Stroke-Arrays
+          strokes   = {},  // device → [ [Punkt,...], ... ]
           lastColor = {},  // Farbe
           lastLight = {};  // Helligkeit
 
-    // HSL-Lightness auslesen
+    // Lightness aus HSL extrahieren
     function parseLight(hsl) {
       const m = hsl.match(/,\s*(\d+)%\)/);
-      return m ? +m[1] : 50;
+      return m? +m[1] : 50;
     }
 
-    // Catmull-Rom-Interpolation
-    function crPoint(p0,p1,p2,p3,t){
+    // Catmull-Rom interpolation
+    function crPoint(p0,p1,p2,p3,t) {
       const t2 = t*t, t3 = t2*t;
       return {
         x: 0.5*(2*p1.x + (p2.x-p0.x)*t + (2*p0.x-5*p1.x+4*p2.x-p3.x)*t2 + (-p0.x+3*p1.x-3*p2.x+p3.x)*t3),
@@ -66,33 +73,33 @@
       };
     }
 
-    // Löschen-Event
+    // Canvas löschen
     socket.on("clear", () => {
-      ctx.clearRect(0,0,c.width,c.height);
+      ctxBG.clearRect(0,0,bg.width,bg.height);
       for (let id in strokes) strokes[id] = [];
     });
 
-    // Neue Bewegungsdaten
+    // Neue Daten vom Control
     socket.on("motion", ({alpha,beta,color,isDrawing,deviceId}) => {
-      if (!deviceId || typeof alpha !== "number") return;
+      if (!deviceId || typeof alpha!=="number") return;
       const now = performance.now();
 
       // Erst-Initialisierung
       if (!(deviceId in rawPos)) {
         rawPos[deviceId]   = { x:CX, y:CY };
         lastTime[deviceId] = now;
-        lastWidth[deviceId]= (MIN_W + MAX_W)/2;
+        lastWidth[deviceId]= (MIN_W+MAX_W)/2;
         wasDraw[deviceId]  = false;
         strokes[deviceId]  = [];
         alpha0[deviceId]   = null;
         beta0[deviceId]    = null;
       }
 
-      // Farbe & Lightness speichern
+      // Farbe & Lightness merken
       lastColor[deviceId] = color;
       lastLight[deviceId] = parseLight(color);
 
-      // Kalibrierung beim ersten Zeichnen
+      // Kalibrieren beim ersten Zeichnen
       if (isDrawing && alpha0[deviceId]===null) {
         alpha0[deviceId] = alpha;
         beta0[deviceId]  = beta;
@@ -101,70 +108,98 @@
 
       // Winkel-Delta + Wrap
       let dA = alpha - alpha0[deviceId];
-      if (dA > 180)  dA -= 360;
-      if (dA < -180) dA += 360;
-      let dB = beta  - beta0[deviceId];
-
-      // Clamp
+      if (dA>180) dA-=360; if (dA<-180) dA+=360;
+      let dB = beta - beta0[deviceId];
       dA = Math.max(-MAX_H, Math.min(MAX_H, dA));
       dB = Math.max(-MAX_V, Math.min(MAX_V, dB));
 
-      // aufs Canvas mappen
+      // Map auf Canvas
       const x = CX - (dA/MAX_H)*CX,
             y = CY - (dB/MAX_V)*CY;
 
-      // Geschwindigkeit (px/s)
+      // Geschwindigkeit px/s
       const prev  = rawPos[deviceId],
-            dt    = (now - lastTime[deviceId]) / 1000,
-            dist  = Math.hypot(x - prev.x, y - prev.y),
+            dt    = (now-lastTime[deviceId])/1000,
+            dist  = Math.hypot(x-prev.x, y-prev.y),
             speed = dt>0 ? dist/dt : 0;
       rawPos[deviceId]   = { x,y };
       lastTime[deviceId] = now;
 
-      // Neuer Stroke-Block, falls Button frisch gedrückt
-      if (isDrawing && !wasDraw[deviceId]) {
-        strokes[deviceId].push([]);
-      }
+      // Neuer Stroke-Block, wenn frisch gedrückt
+      if (isDrawing && !wasDraw[deviceId]) strokes[deviceId].push([]);
       wasDraw[deviceId] = isDrawing;
 
       if (isDrawing) {
-        // Normierte Geschwindigkeit → rohe Breite
+        // Breite nach Geschwindigkeit
         const norm = Math.min(1, speed/SPEED_THRESH),
-              rawW = MAX_W - (MAX_W - MIN_W)*norm,
+              rawW = MAX_W - (MAX_W-MIN_W)*norm,
               wPrev= lastWidth[deviceId],
               w    = wPrev + (rawW - wPrev)*SMOOTH;
         lastWidth[deviceId] = w;
 
-        // Punkt an das aktuelle Stroke-Array hängen
+        // Punkt ans letzte Stroke-Array hängen
         const curr = strokes[deviceId].slice(-1)[0];
-        curr.push({ x,y,w,color });
+        curr.push({x,y,w,color});
 
-        // Sobald mind. 4 Punkte da sind, Zeichne nur das neue CR-Segment:
-        if (curr.length>=4) {
-          const len = curr.length;
-          const p0 = curr[len-4],
-                p1 = curr[len-3],
-                p2 = curr[len-2],
-                p3 = curr[len-1];
-          // Schritte anpassen an Strecke
-          const steps = Math.ceil(Math.hypot(p2.x-p1.x,p2.y-p1.y)/8)+1;
+        // Sobald >=4 Punkte, strecke nur das letzte CR-Segment fort
+        if (curr.length >= 4) {
+          const L = curr.length,
+                p0 = curr[L-4],
+                p1 = curr[L-3],
+                p2 = curr[L-2],
+                p3 = curr[L-1],
+                steps = Math.ceil(Math.hypot(p2.x-p1.x,p2.y-p1.y)/8)+1;
           let prevPt = p1;
           for (let i=1; i<=steps; i++) {
-            const t = i/steps;
-            const { x:xx, y:yy } = crPoint(p0,p1,p2,p3,t);
-            const ww = p1.w*(1-t) + p2.w*t;
-            ctx.beginPath();
-            ctx.strokeStyle = p1.color;
-            ctx.lineWidth   = ww;
-            ctx.lineCap     = "round";
-            ctx.moveTo(prevPt.x, prevPt.y);
-            ctx.lineTo(xx, yy);
-            ctx.stroke();
+            const t = i/steps,
+                  { x:xx, y:yy } = crPoint(p0,p1,p2,p3,t),
+                  ww = p1.w*(1-t) + p2.w*t;
+            ctxBG.beginPath();
+            ctxBG.strokeStyle = p1.color;
+            ctxBG.lineWidth   = ww;
+            ctxBG.lineCap     = "round";
+            ctxBG.moveTo(prevPt.x, prevPt.y);
+            ctxBG.lineTo(xx, yy);
+            ctxBG.stroke();
             prevPt = { x:xx, y:yy };
           }
         }
       }
     });
+
+    // --- Overlay: Pulsierender Punkt ---
+    let pulse=0, growing=true;
+    function drawPulse() {
+      ctxFG.clearRect(0,0,fg.width,fg.height);
+      pulse += growing?0.2:-0.2;
+      if (pulse>2) growing=false;
+      if (pulse<0) growing=true;
+
+      for (let id in rawPos) {
+        const { x,y } = rawPos[id],
+              wHalf  = (lastWidth[id]||((MIN_W+MAX_W)/2))/2,
+              r      = wHalf + pulse,
+              col    = lastColor[id] || "#f00";
+
+        // fill circle
+        ctxFG.beginPath();
+        ctxFG.fillStyle = col;
+        ctxFG.arc(x,y,r,0,2*Math.PI);
+        ctxFG.fill();
+
+        // optional weißer Ring bei Dunkelheit
+        if ((lastLight[id]||50) < 20) {
+          ctxFG.beginPath();
+          ctxFG.lineWidth = 3;
+          ctxFG.strokeStyle = "#fff";
+          ctxFG.arc(x,y,r+3,0,2*Math.PI);
+          ctxFG.stroke();
+        }
+      }
+
+      requestAnimationFrame(drawPulse);
+    }
+    drawPulse();
   </script>
 </body>
 </html>
