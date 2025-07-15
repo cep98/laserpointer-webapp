@@ -3,47 +3,47 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Laserpointer Display v3.17 (gap-free bezier)</title>
+  <title>Laserpointer Display v3.18 (bezier redraw)</title>
   <style>
     body { margin:0; background:black; overflow:hidden }
-    #container {
-      position:relative;
-      width:1024px; height:1024px;
-      margin:auto;
-    }
-    /* nur das Static-Canvas bekommt Schwarz, das Overlay bleibt transparent */
-    #static  { position:absolute; top:0; left:0; background:black; }
-    #overlay { position:absolute; top:0; left:0; /* transparent */ }
-    canvas { display:block; }
     #version {
       position:absolute; top:10px; left:10px;
       color:white; font-family:sans-serif;
       font-size:14px; opacity:0.6; z-index:10;
     }
+    canvas {
+      display:block;
+      margin:auto;
+      background:black;
+      position:absolute;
+      top:0; left:0;
+    }
+    #container {
+      position:relative;
+      width:1024px; height:1024px;
+      margin:auto;
+    }
   </style>
 </head>
 <body>
-  <div id="version">v3.17 (gap-free bezier)</div>
+  <div id="version">v3.18 (bezier redraw)</div>
   <div id="container">
-    <canvas id="static"  width="1024" height="1024"></canvas>
-    <canvas id="overlay" width="1024" height="1024"></canvas>
+    <canvas id="canvas" width="1024" height="1024"></canvas>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
-    const sock = io();
-    sock.emit("identify",{ role:"display", deviceId:null });
+    const socket = io();
+    socket.emit("identify", { role:"display", deviceId:null });
 
-    const staticC  = document.getElementById("static"),
-          overlayC = document.getElementById("overlay"),
-          sctx      = staticC.getContext("2d"),
-          octx      = overlayC.getContext("2d"),
-          CX        = staticC.width/2,
-          CY        = staticC.height/2;
+    const canvas = document.getElementById("canvas"),
+          ctx    = canvas.getContext("2d"),
+          CX     = canvas.width/2,
+          CY     = canvas.height/2;
 
-    // Admin‐Settings (werden per Admin verändert)
+    // Admin-Settings (werden live überschrieben)
     let MAX_H = 20, MAX_V = 20, MIN_W = 5, MAX_W = 12, SMOOTH = 0.15;
-    sock.on("updateSettings", cfg => {
+    socket.on("updateSettings", cfg => {
       if (typeof cfg.maxH   === "number") MAX_H  = cfg.maxH;
       if (typeof cfg.maxV   === "number") MAX_V  = cfg.maxV;
       if (typeof cfg.minW   === "number") MIN_W  = cfg.minW;
@@ -51,153 +51,168 @@
       if (typeof cfg.smooth === "number") SMOOTH = cfg.smooth;
     });
 
-    const SPEED_THRESH = 2000;  // px/s ⇒ ab hier min-Width
+    const SPEED_THRESH = 2000; // px/s
 
     // State pro Gerät
-    const alpha0    = {}, beta0     = {},
-          rawPos    = {}, lastTime  = {},
-          lastWidth = {}, wasDrawing={},
-          prev1     = {}, prev2     = {},
-          lastColor = {}, lastLight = {};
+    const alpha0    = {},   // Kalibrier-Nullpunkt α
+          beta0     = {},   // Kalibrier-Nullpunkt β
+          rawPos    = {},   // letzter Roh-Punkt {x,y}
+          lastTime  = {},   // timestamp
+          lastWidth = {},   // gestrichene Breite zuletzt
+          wasDraw   = {},   // ob gezeichnet wurde
+          prev1     = {},   // letzter gezeichneter Punkt
+          prev2     = {},   // zweiter letzter gezeichneter Punkt
+          lastColor = {},   // Farbe zuletzt
+          lastLight = {},   // Helligkeit zuletzt
+          segments  = [];   // {p0,p1,p2,color,width}
 
-    sctx.lineCap  = "round"; sctx.lineJoin = "round";
-    octx.lineCap  = "round"; octx.lineJoin = "round";
-
+    // Hilfsfunktion zum Auslesen der Lightness aus "hsl(...,50%)"
     function parseLight(hsl) {
       const m = hsl.match(/,\s*(\d+)%\)/);
       return m ? +m[1] : 50;
     }
 
-    sock.on("clear", () => {
-      // beide Canvas löschen und State resetten
-      sctx.clearRect(0,0,staticC.width,staticC.height);
-      octx.clearRect(0,0,overlayC.width,overlayC.height);
+    // Reset bei Clear
+    socket.on("clear", () => {
+      segments.length = 0;
+      ctx.clearRect(0,0,canvas.width,canvas.height);
       for (let id in rawPos) {
         delete rawPos[id];
-        delete lastTime[id];
-        delete lastWidth[id];
-        delete wasDrawing[id];
-        delete prev1[id];
-        delete prev2[id];
         delete alpha0[id];
         delete beta0[id];
+        delete lastTime[id];
+        delete lastWidth[id];
+        delete wasDraw[id];
+        delete prev1[id];
+        delete prev2[id];
         delete lastColor[id];
         delete lastLight[id];
       }
     });
 
-    sock.on("motion", ({alpha,beta,color,isDrawing,deviceId}) => {
+    // Empfang neuer Bewegungsdaten
+    socket.on("motion", ({alpha,beta,color,isDrawing,deviceId}) => {
       if (!deviceId || typeof alpha !== "number") return;
       const now = performance.now();
 
-      // zum Puls
+      // Farbe & Lightness merken
       lastColor[deviceId] = color;
       lastLight[deviceId] = parseLight(color);
 
-      // erstes Initialisieren
+      // Erst-Initialisierung
       if (!(deviceId in rawPos)) {
-        rawPos[deviceId]   = { x: CX, y: CY };
+        rawPos[deviceId]   = { x:CX, y:CY };
         lastTime[deviceId] = now;
-        // Start-Breite in der Mitte
-        lastWidth[deviceId] = (MIN_W + MAX_W)/2;
-        wasDrawing[deviceId] = false;
+        lastWidth[deviceId]= (MIN_W + MAX_W)/2;
+        wasDraw[deviceId]  = false;
         prev1[deviceId] = prev2[deviceId] = null;
         alpha0[deviceId] = beta0[deviceId] = null;
       }
 
-      // Kalibrierpunkt beim **ersten** Zeichnen setzen
-      if (isDrawing && alpha0[deviceId]===null) {
+      // Kalibrierung beim allerersten Zeichnen
+      if (isDrawing && alpha0[deviceId] === null) {
         alpha0[deviceId] = alpha;
         beta0 [deviceId] = beta;
       }
-      if (alpha0[deviceId]===null) return; // bis zur Kalibrierung nichts machen
+      if (alpha0[deviceId] === null) return;
 
-      // Winkel‐Delta + Wrap
+      // Winkel-Delta + Wrap-Around
       let dA = alpha - alpha0[deviceId];
       if (dA > 180)  dA -= 360;
       if (dA < -180) dA += 360;
       let dB = beta - beta0[deviceId];
 
-      // clamp
+      // Clamp
       dA = Math.max(-MAX_H, Math.min(MAX_H, dA));
       dB = Math.max(-MAX_V, Math.min(MAX_V, dB));
 
-      // auf Canvas-Maße mappen
+      // Auf Canvas-Koordinaten mappen
       const x = CX - (dA/MAX_H)*CX,
             y = CY - (dB/MAX_V)*CY;
 
-      // Geschwindigkeit berechnen
+      // Geschwindigkeit in px/s
       const prevRaw = rawPos[deviceId],
-            dt      = (now - lastTime[deviceId])/1000,
-            dist    = Math.hypot(x-prevRaw.x, y-prevRaw.y),
+            dt      = (now - lastTime[deviceId]) / 1000,
+            dist    = Math.hypot(x - prevRaw.x, y - prevRaw.y),
             speed   = dt>0 ? dist/dt : 0;
-      lastTime[deviceId] = now;
       rawPos[deviceId] = { x, y };
+      lastTime[deviceId] = now;
 
-      // Trennlinie, wenn man neu ansetzt
-      if (isDrawing && !wasDrawing[deviceId]) {
+      // Wenn Button neu gedrückt wurde, nicht verbinden
+      if (isDrawing && !wasDraw[deviceId]) {
         prev1[deviceId] = prev2[deviceId] = null;
       }
-      wasDrawing[deviceId] = isDrawing;
+      wasDraw[deviceId] = isDrawing;
 
       if (isDrawing) {
-        // Normierte Speed → Breite [MIN_W..MAX_W]
-        const norm   = Math.min(1, speed/SPEED_THRESH),
-              rawW   = MAX_W - (MAX_W - MIN_W)*norm,
-              wPrev  = lastWidth[deviceId],
-              wSmooth= wPrev + (rawW - wPrev)*SMOOTH;
+        // normierte Speed → rohes W [MIN_W..MAX_W]
+        const norm  = Math.min(1, speed/SPEED_THRESH),
+              rawW  = MAX_W - (MAX_W - MIN_W)*norm,
+              wPrev = lastWidth[deviceId],
+              wSmooth = wPrev + (rawW - wPrev)*SMOOTH;
         lastWidth[deviceId] = wSmooth;
 
         // History schieben
         prev2[deviceId] = prev1[deviceId];
         prev1[deviceId] = { x, y, w:wSmooth, color };
 
-        // Jetzt **voll** von prev2 → prev1 → aktuellen Punkt zeichnen
+        // nur wenn wir drei Punkte haben, zeichnen
         if (prev2[deviceId]) {
-          const p0 = prev2[deviceId],
-                p1 = prev1[deviceId],
-                p2 = { x, y };
-
-          sctx.beginPath();
-          sctx.strokeStyle = p1.color;
-          sctx.lineWidth   = p1.w;
-          sctx.moveTo(p0.x, p0.y);
-          sctx.quadraticCurveTo(p1.x, p1.y, p2.x, p2.y);
-          sctx.stroke();
+          segments.push({
+            p0: prev2[deviceId],
+            p1: prev1[deviceId],
+            p2: {x,y},
+            color,
+            width: wSmooth
+          });
         }
       }
     });
 
-    // Render‐Loop nur für Puls-Punkt
-    let pulse = 0, growing = true;
-    (function loop(){
-      octx.clearRect(0,0,overlayC.width,overlayC.height);
-      pulse += growing ? 0.2 : -0.2;
-      if (pulse > 2)  growing = false;
-      if (pulse < 0)  growing = true;
+    // Render-Loop: Bézier redraw + Puls-Punkt
+    let pulse = 0, grow = true;
+    (function render(){
+      // 1) Kurve neu zeichnen
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.lineCap  = "round";
+      ctx.lineJoin = "round";
+
+      for (let s of segments) {
+        ctx.strokeStyle = s.color;
+        ctx.lineWidth   = s.width;
+        ctx.beginPath();
+        ctx.moveTo(s.p0.x, s.p0.y);
+        ctx.quadraticCurveTo(s.p1.x, s.p1.y, s.p2.x, s.p2.y);
+        ctx.stroke();
+      }
+
+      // 2) Puls-Punkt
+      pulse += grow?0.2:-0.2;
+      if (pulse>2) grow=false;
+      if (pulse<0) grow=true;
 
       for (let id in rawPos) {
-        const { x, y } = rawPos[id],
-              col     = lastColor[id] || "#f00",
-              r       = lastWidth[id]/2 + pulse;
+        const {x,y} = rawPos[id],
+              col   = lastColor[id] || "#f00",
+              r     = lastWidth[id]/2 + pulse;
 
-        // Punkt
-        octx.beginPath();
-        octx.fillStyle = col;
-        octx.arc(x, y, r, 0, 2*Math.PI);
-        octx.fill();
+        // Füllen
+        ctx.beginPath();
+        ctx.arc(x,y,r,0,2*Math.PI);
+        ctx.fillStyle = col;
+        ctx.fill();
 
-        // Weißer Ring bei Low-Light
+        // Ring falls dunkel
         if ((lastLight[id]||50) < 20) {
-          octx.strokeStyle = "#fff";
-          octx.lineWidth   = 3;
-          octx.beginPath();
-          octx.arc(x, y, r+3, 0, 2*Math.PI);
-          octx.stroke();
+          ctx.strokeStyle = "#fff";
+          ctx.lineWidth   = 3;
+          ctx.beginPath();
+          ctx.arc(x,y,r+3,0,2*Math.PI);
+          ctx.stroke();
         }
       }
 
-      requestAnimationFrame(loop);
+      requestAnimationFrame(render);
     })();
   </script>
 </body>
