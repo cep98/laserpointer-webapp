@@ -2,266 +2,200 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Laserpointer Display v3.19 (static + CR smoothing + Pulse + Jitter‑Filter)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Laserpointer Display v3.13.7</title>
   <style>
-    body { margin:0; background:black; overflow:hidden }
-    #container { position:relative; width:1024px; height:1024px; margin:auto }
-    /* Hintergrund (Linien) */
-    #bgCanvas { position:absolute; top:0; left:0; background:black }
-    /* Vordergrund (Punkt) – transparent */
-    #fgCanvas { position:absolute; top:0; left:0; background:transparent }
-    canvas { display:block }
+    body { margin:0; background:black; }
+    canvas { display:block; margin:auto; background:black }
     #version {
       position:absolute; top:10px; left:10px;
       color:white; font-family:sans-serif;
-      font-size:14px; opacity:0.6; z-index:10;
+      font-size:14px; opacity:0.6;
     }
   </style>
 </head>
 <body>
-  <div id="version">v3.19 (static + CR smoothing + Pulse + Jitter‑Filter)</div>
-  <div id="container">
-    <canvas id="bgCanvas" width="1024" height="1024"></canvas>
-    <canvas id="fgCanvas" width="1024" height="1024"></canvas>
-  </div>
-
+  <div id="version">v3.13.7 (settings fix)</div>
+  <canvas id="canvas" width="1024" height="1024"></canvas>
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
-    socket.emit("identify", { role:"display", deviceId:null });
+    socket.emit("identify",{ role:"display", deviceId:null });
 
-    const bg    = document.getElementById("bgCanvas"),
-          fg    = document.getElementById("fgCanvas"),
-          ctxBG = bg.getContext("2d"),
-          ctxFG = fg.getContext("2d"),
-          CX    = bg.width/2,
-          CY    = bg.height/2;
+    const c    = document.getElementById("canvas"),
+          ctx  = c.getContext("2d"),
+          CX   = c.width/2,
+          CY   = c.height/2;
 
-    // Admin-Werte: CR‑Smoothing für Linien bleibt fest, 
-    // Slider reguliert nur den JITTER‑Faktor für den Punkt
+    // Admin‐Settings (werden per Admin-Panel gesetzt)
     let MAX_H   = 20,
         MAX_V   = 20,
         MIN_W   = 5,
         MAX_W   = 12,
-        SMOOTH  = 0.15,    // für Breiten-Glättung der Linien
-        JITTER  = 0.2;     // initial 20%
+        SMOOTH  = 0.15;
 
     socket.on("updateSettings", cfg => {
       if (typeof cfg.maxH   === "number") MAX_H  = cfg.maxH;
       if (typeof cfg.maxV   === "number") MAX_V  = cfg.maxV;
       if (typeof cfg.minW   === "number") MIN_W  = cfg.minW;
       if (typeof cfg.maxW   === "number") MAX_W  = cfg.maxW;
-      if (typeof cfg.smooth === "number") JITTER = cfg.smooth;
+      if (typeof cfg.smooth === "number") SMOOTH = cfg.smooth;
+      console.log("Settings:", {MAX_H,MAX_V,MIN_W,MAX_W,SMOOTH});
     });
 
-    const SPEED_THRESH = 2000;  // px/s → ab hier Minimum-Strich
+    const SPEED_THRESHOLD = 2000;
 
     // State pro Gerät
-    const alpha0    = {},   // Kalibrier‑Nullpunkt α
-          beta0     = {},   // Kalibrier‑Nullpunkt β
-          rawPos    = {},   // letzter ungefilterter Punkt
-          lastTime  = {},   // Timestamp
-          lastWidth = {},   // letzte Strichstärke
-          wasDraw   = {},   // Button-Status
-          strokes   = {},   // deviceId → Array von Punkt-Arrays
-          lastColor = {},   // letzte Farbe
-          lastLight = {},   // letzte Helligkeit
-          jitterPos = {};   // deviceId → gefilterte Punkt‑Coords
+    const alpha0     = {},
+          beta0      = {},
+          rawPos     = {},
+          smoothPos  = {},
+          lastTime   = {},
+          lastWidth  = {},
+          lastColor  = {},
+          lastLight  = {},
+          prev1      = {},
+          prev2      = {},
+          wasDrawing = {},
+          segments   = {};
 
-    ctxBG.lineCap  = "round";
-    ctxBG.lineJoin = "round";
+    ctx.lineCap  = "round";
+    ctx.lineJoin = "round";
 
-    /** Liest Helligkeit aus HSL, RGB oder HEX zurück (0–100) */
-    function parseLight(color) {
-      color = color.trim();
-      let m;
-      if (color.startsWith("hsl")) {
-        m = color.match(/,\s*(\d+)%\s*\)/);
-        return m ? +m[1] : 50;
-      }
-      if (color.startsWith("rgb")) {
-        m = color.match(/rgba?\(\s*(\d+),\s*(\d+),\s*(\d+)/);
-        if (m) {
-          const r = +m[1], g = +m[2], b = +m[3];
-          // relative Luminance nach Rec.709
-          return (0.2126*r + 0.7152*g + 0.0722*b) / 2.55;
-        }
-      }
-      if (color.startsWith("#")) {
-        let hex = color.slice(1);
-        if (hex.length === 3) hex = hex[0]+hex[0] + hex[1]+hex[1] + hex[2]+hex[2];
-        const r = parseInt(hex.slice(0,2),16),
-              g = parseInt(hex.slice(2,4),16),
-              b = parseInt(hex.slice(4,6),16);
-        return (0.2126*r + 0.7152*g + 0.0722*b) / 2.55;
-      }
-      return 50;
+    function parseLight(hsl) {
+      const m = hsl.match(/,\s*(\d+)%\)/);
+      return m ? +m[1] : 50;
     }
 
-    /** Catmull‑Rom–Interpolation zwischen vier Punkten */
-    function crPoint(p0,p1,p2,p3,t) {
-      const t2 = t*t, t3 = t2*t;
-      return {
-        x: 0.5*(2*p1.x + (p2.x-p0.x)*t 
-           + (2*p0.x-5*p1.x+4*p2.x-p3.x)*t2 
-           + (-p0.x+3*p1.x-3*p2.x+p3.x)*t3),
-        y: 0.5*(2*p1.y + (p2.y-p0.y)*t 
-           + (2*p0.y-5*p1.y+4*p2.y-p3.y)*t2 
-           + (-p0.y+3*p1.y-3*p2.y+p3.y)*t3)
-      };
-    }
-
-    // Canvas komplett löschen
     socket.on("clear", () => {
-      ctxBG.clearRect(0,0,bg.width,bg.height);
-      for (let id in strokes) strokes[id] = [];
-      for (let id in jitterPos) delete jitterPos[id];
+      ctx.clearRect(0,0,c.width,c.height);
+      for (let id in segments) segments[id] = [];
     });
 
-    // Bewegung & Zeichnen der statischen Linien
-    socket.on("motion", ({alpha,beta,color,isDrawing,deviceId}) => {
-      if (!deviceId || typeof alpha !== "number") return;
+    socket.on("motion", ({ alpha, beta, color, isDrawing, deviceId }) => {
+      if (!deviceId || typeof alpha!=="number") return;
       const now = performance.now();
 
-      // Erst‑Init
+      // Beim ersten Mal initialisieren
       if (!(deviceId in rawPos)) {
         rawPos[deviceId]    = { x:CX, y:CY };
+        smoothPos[deviceId] = { x:CX, y:CY };
         lastTime[deviceId]  = now;
-        lastWidth[deviceId] = (MIN_W + MAX_W)/2;
-        wasDraw[deviceId]   = false;
-        strokes[deviceId]   = [];
-        alpha0[deviceId]    = null;
-        beta0 [deviceId]    = null;
+        lastWidth[deviceId] = (MIN_W+MAX_W)/2;
+        prev1[deviceId]     = null;
+        prev2[deviceId]     = null;
+        wasDrawing[deviceId]= false;
+        segments[deviceId]  = [];
       }
 
-      // Farbe/Helligkeit merken
+      // Farbe/Helligkeit updaten
       lastColor[deviceId] = color;
       lastLight[deviceId] = parseLight(color);
 
-      // Kalibrierung beim ersten Zeichnen
-      if (isDrawing && alpha0[deviceId] === null) {
+      // Kalibrieren beim ersten Zeichnen
+      if (isDrawing && alpha0[deviceId] === undefined) {
         alpha0[deviceId] = alpha;
         beta0 [deviceId] = beta;
       }
-      if (alpha0[deviceId] === null) return;
+      if (alpha0[deviceId] === undefined) return;
 
       // Winkel‐Delta + Wrap
       let dA = alpha - alpha0[deviceId];
-      if (dA > 180)  dA -= 360;
-      if (dA < -180) dA += 360;
+      if (dA>180)  dA-=360;
+      if (dA<-180) dA+=360;
       let dB = beta - beta0[deviceId];
       dA = Math.max(-MAX_H, Math.min(MAX_H, dA));
       dB = Math.max(-MAX_V, Math.min(MAX_V, dB));
 
-      // auf Canvas‑Koords mappen
-      const x = CX - (dA/MAX_H)*CX,
-            y = CY - (dB/MAX_V)*CY;
+      // Rohe Position
+      const rawX = CX - (dA/MAX_H)*CX,
+            rawY = CY - (dB/MAX_V)*CY;
 
-      // Geschwindigkeit in px/s
+      // Glätten der Position
+      const sp = smoothPos[deviceId];
+      sp.x += (rawX - sp.x) * SMOOTH;
+      sp.y += (rawY - sp.y) * SMOOTH;
+
+      // Geschwindigkeit
       const prevRaw = rawPos[deviceId],
-            dt      = (now - lastTime[deviceId]) / 1000,
-            dist    = Math.hypot(x - prevRaw.x, y - prevRaw.y),
+            dt      = (now - lastTime[deviceId])/1000,
+            dist    = Math.hypot(rawX - prevRaw.x, rawY - prevRaw.y),
             speed   = dt>0 ? dist/dt : 0;
-      rawPos[deviceId]    = { x, y };
-      lastTime[deviceId]  = now;
+      lastTime[deviceId] = now;
+      rawPos[deviceId]   = { x:rawX, y:rawY };
 
-      // neuer Stroke‑Block, wenn frisch gedrückt
-      if (isDrawing && !wasDraw[deviceId]) strokes[deviceId].push([]);
-      wasDraw[deviceId] = isDrawing;
+      // Wenn neu gezeichnet wird, resetten wir den Bézier-Speicher
+      if (isDrawing && !wasDrawing[deviceId]) {
+        prev1[deviceId] = null;
+        prev2[deviceId] = null;
+      }
+      wasDrawing[deviceId] = isDrawing;
 
       if (isDrawing) {
-        // Strichstärke aus Geschwindigkeit + Glättung
-        const norm = Math.min(1, speed/SPEED_THRESH),
+        // Dynamische Breite
+        const norm = Math.min(1, speed/SPEED_THRESHOLD),
               rawW = MAX_W - (MAX_W - MIN_W)*norm,
-              wPrev= lastWidth[deviceId],
-              w    = wPrev + (rawW - wPrev)*SMOOTH;
+              w    = lastWidth[deviceId] + (rawW - lastWidth[deviceId]) * 0.3;
         lastWidth[deviceId] = w;
 
-        // an aktuelles Stroke-Array anhängen
-        const curr = strokes[deviceId].slice(-1)[0];
-        curr.push({ x, y, w, color });
+        // Punkt-Historie
+        prev2[deviceId] = prev1[deviceId];
+        prev1[deviceId] = { x:sp.x, y:sp.y };
 
-        // je nach Länge die passende Kurve zeichnen
-        const L = curr.length;
-        if (L === 2) {
-          const [p0,p1] = curr;
-          ctxBG.beginPath();
-          ctxBG.strokeStyle = p0.color;
-          ctxBG.lineWidth   = p1.w;
-          ctxBG.moveTo(p0.x,p0.y);
-          ctxBG.lineTo(p1.x,p1.y);
-          ctxBG.stroke();
-        } else if (L === 3) {
-          const [p0,p1,p2] = curr;
-          ctxBG.beginPath();
-          ctxBG.strokeStyle = p1.color;
-          ctxBG.lineWidth   = p1.w;
-          ctxBG.moveTo(p0.x,p0.y);
-          ctxBG.quadraticCurveTo(p1.x,p1.y,p2.x,p2.y);
-          ctxBG.stroke();
-        } else if (L > 3) {
-          const p0 = curr[L-4], p1 = curr[L-3],
-                p2 = curr[L-2], p3 = curr[L-1],
-                steps = Math.ceil(Math.hypot(p2.x-p1.x,p2.y-p1.y)/8) + 1;
-          let prevPt = p1;
-          for (let i = 1; i <= steps; i++) {
-            const t  = i/steps,
-                  pt = crPoint(p0,p1,p2,p3,t),
-                  ww = p1.w*(1-t) + p2.w*t;
-            ctxBG.beginPath();
-            ctxBG.strokeStyle = p1.color;
-            ctxBG.lineWidth   = ww;
-            ctxBG.moveTo(prevPt.x, prevPt.y);
-            ctxBG.lineTo(pt.x, pt.y);
-            ctxBG.stroke();
-            prevPt = pt;
-          }
+        // Bézier‐Segment (erst ab 3 Punkten)
+        if (prev2[deviceId]) {
+          segments[deviceId].push({
+            p0: prev2[deviceId],
+            p1: prev1[deviceId],
+            p2: { x:sp.x, y:sp.y },
+            color, w
+          });
         }
       }
     });
 
-    // --- Overlay: Pulsierender Punkt mit Jitter-Filter ---
+    // Render‐Loop
     let pulse = 0, growing = true;
-    (function drawPulse(){
-      ctxFG.clearRect(0,0,fg.width,fg.height);
+    (function render(){
+      ctx.clearRect(0,0,c.width,c.height);
 
-      // Puls
+      // 1) Alle Bézier‐Segmente zeichnen
+      for (let id in segments) {
+        for (let seg of segments[id]) {
+          ctx.strokeStyle = seg.color;
+          ctx.lineWidth   = seg.w;
+          ctx.beginPath();
+          ctx.moveTo(seg.p0.x, seg.p0.y);
+          ctx.quadraticCurveTo(seg.p1.x, seg.p1.y, seg.p2.x, seg.p2.y);
+          ctx.stroke();
+        }
+      }
+
+      // 2) Pulsierender Punkt
       pulse += growing ? 0.2 : -0.2;
       if (pulse > 2)  growing = false;
       if (pulse < 0)  growing = true;
 
-      // für jedes Device glätten + zeichnen
-      for (let id in rawPos) {
-        // Init filter
-        if (!(id in jitterPos)) jitterPos[id] = { ...rawPos[id] };
-
-        // Jitter-Glättung
-        jitterPos[id].x += (rawPos[id].x - jitterPos[id].x) * JITTER;
-        jitterPos[id].y += (rawPos[id].y - jitterPos[id].y) * JITTER;
-
-        const { x, y } = jitterPos[id],
-              r       = (lastWidth[id]||((MIN_W+MAX_W)/2))/2 + pulse,
+      for (let id in smoothPos) {
+        const { x, y } = smoothPos[id],
               col     = lastColor[id] || "#f00",
-              light   = lastLight[id] || 50;
+              r       = lastWidth[id]/2 + pulse;
 
-        // Punkt mit gewählter Farbe
-        ctxFG.beginPath();
-        ctxFG.fillStyle = col;
-        ctxFG.arc(x, y, r, 0, Math.PI*2);
-        ctxFG.fill();
+        ctx.fillStyle = col;
+        ctx.beginPath();
+        ctx.arc(x,y,r,0,2*Math.PI);
+        ctx.fill();
 
-        // Weißer Ring bei Light < 20% (inkl. 0%)
-        if (light < 20) {
-          ctxFG.beginPath();
-          ctxFG.strokeStyle = "#fff";
-          ctxFG.lineWidth   = 3;
-          ctxFG.arc(x, y, r + 3, 0, Math.PI*2);
-          ctxFG.stroke();
+        if ((lastLight[id]||50) < 20) {
+          ctx.strokeStyle = "#fff";
+          ctx.lineWidth   = 3;
+          ctx.beginPath();
+          ctx.arc(x,y,r+3,0,2*Math.PI);
+          ctx.stroke();
         }
       }
 
-      requestAnimationFrame(drawPulse);
+      requestAnimationFrame(render);
     })();
   </script>
 </body>
